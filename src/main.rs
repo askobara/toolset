@@ -3,6 +3,11 @@
 extern crate skim;
 extern crate xdg;
 
+#[macro_use] extern crate log;
+extern crate simplelog;
+
+use simplelog::TermLogger;
+
 use arboard::Clipboard;
 use chrono::prelude::*;
 use clap_complete::{generate, Generator, Shell};
@@ -92,6 +97,14 @@ enum Commands {
     },
 
     #[command()]
+    RunDeploy {
+        #[arg(short, long)]
+        build_id: String,
+        #[arg(short, long)]
+        env: Option<String>,
+    },
+
+    #[command()]
     ListBuilds {
         #[arg(long)]
         workdir: Option<String>,
@@ -112,7 +125,11 @@ enum Commands {
 
     #[command()]
     ListBuildTypes {
-    }
+    },
+
+    #[command()]
+    Init {
+    },
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -125,6 +142,26 @@ struct BuildTypeBody {
 struct BuildBody {
     branch_name: String,
     build_type: BuildTypeBody,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Property {
+    name: String,
+    value: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DeployProperties {
+    property: Vec<Property>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DeployBody {
+    build_type: BuildTypeBody,
+    properties: DeployProperties,
 }
 
 // enum BuildTypeType {
@@ -152,7 +189,7 @@ impl SkimItem for BuildType {
     }
 
     fn preview(&self, _context: PreviewContext) -> ItemPreview {
-        ItemPreview::Text(format!("{} ({})\n{}", self.project_name, self.r#type.as_ref().map(|s| s.to_owned()).unwrap_or("no type".to_string()), self.web_url))
+        ItemPreview::Text(format!("{:#?}", self))
     }
 }
 
@@ -179,7 +216,7 @@ struct BuildQueue {
     id: i32,
     build_type_id: String,
     state: String,
-    branch_name: String,
+    branch_name: Option<String>,
     href: String,
     web_url: String,
     build_type: BuildType,
@@ -193,13 +230,13 @@ struct BuildQueue {
 struct Build {
     id: i32,
     build_type_id: String,
-    number: String,
-    status: String, // SUCCESS/FAILURE/UNKNOWN
+    number: Option<String>,
+    status: Option<String>, // SUCCESS/FAILURE/UNKNOWN
     state: String, // queued/running/finished
     branch_name: Option<String>,
     href: String,
     web_url: String,
-    finish_on_agent_date: String,
+    finish_on_agent_date: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -281,6 +318,14 @@ fn create_client() -> reqwest::Client {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    TermLogger::init(
+        simplelog::LevelFilter::Info,
+        simplelog::Config::default(),
+        simplelog::TerminalMode::Stdout,
+        simplelog::ColorChoice::Auto,
+    )
+    .unwrap();
+
     let cli = Cli::parse();
 
     if let Some(generator) = cli.generator {
@@ -322,12 +367,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     println!("{}", style("✔ copied!").green().italic());
                 }
             },
+
             Commands::ListBuilds { workdir, branch_name, build_type, author, limit } => {
                 let path = normalize_path(&workdir);
                 let branch = normalize_branch_name(&branch_name, &path);
                 let btype = normalize_build_type(&build_type, &path);
 
-                let mut locator: Vec<String> = vec![format!("count:{}", limit.unwrap_or(5))];
+                let mut locator: Vec<String> = vec![
+                    format!("defaultFilter:false"),
+                    format!("personal:false"),
+                    format!("count:{}", limit.unwrap_or(5))
+                ];
 
                 if branch != "any" {
                     locator.push(format!("branch:{}", branch));
@@ -338,7 +388,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 if btype == "build" || btype == "b" {
                     locator.push(format!("buildType:(type:regular,name:Build)"));
                 } else if btype == "deploy" || btype == "d" {
-                    locator.push(format!("buildType:(type:deployment,name:QADeploy)"));
+                    locator.push(format!("buildType:(type:deployment)"));
                 } else if btype != "any" {
                     locator.push(format!("buildType:{}", btype));
                 }
@@ -347,7 +397,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     locator.push(format!("user:{}", author));
                 }
 
-                let response = client.get(format!("{host}/app/rest/builds?locator={locator}", host = CONFIG.teamcity.host, locator = locator.join(",")))
+                let url = format!(
+                    "{host}/app/rest/builds?locator={locator}",
+                    host = CONFIG.teamcity.host,
+                    locator = locator.join(",")
+                );
+
+                info!("{}", &url);
+
+                let response = client.get(url)
                     .send()
                     .await?
                     .json::<Builds>()
@@ -357,26 +415,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let mut table = Table::new();
                 table.set_format(*TABLE_FORMAT);
 
-                table.set_titles(row!["", "", "build type", "url", "date", "branch"]);
+                table.set_titles(row!["", "date", "build type", "url", "branch"]);
                 for b in response.build {
                     table.add_row(row![
-                        match &b.status[..] {
+                        match b.status.as_deref().unwrap_or("UNKNOWN") {
                             "SUCCESS" => format!("{}", style("✓").green().bold()),
                             "FAILURE" => format!("{}", style("✗").red().bold()),
                             "UNKNOWN" => format!("{}", style("?").bold()),
                             _ => format!("unexpected status")
                         },
-                        match &b.state[..] {
-                            "queued" => "祥",
-                            "running" => "痢",
-                            "finished" => "",
-                            _ => "?"
-                        },
+                        format!(
+                            "{} {}",
+                            match &b.state[..] {
+                                "queued" => "祥queued",
+                                "running" => "痢running",
+                                "finished" => "",
+                                _ => "?"
+                            },
+                            b.finish_on_agent_date
+                                .and_then(|str| DateTime::parse_from_str(&str, "%Y%m%dT%H%M%S%z").ok())
+                                .and_then(|date| Some(date.format("%a, %d %b %R").to_string()))
+                                .unwrap_or(String::default()),
+                        ),
                         b.build_type_id,
                         // style(format!("\x1b]8;;{url}\x1b\\{text}\x1b]8;;\x1b\\", url = b.web_url, text = b.number)),
                         style(b.web_url).blue().underlined(),
-                        DateTime::parse_from_str(&b.finish_on_agent_date, "%Y%m%dT%H%M%S%z").unwrap().format("%a, %d %b %R"),
-                        b.branch_name.unwrap_or("master (default branch)".to_string()),
+                        b.branch_name.as_deref().unwrap_or("master (default branch)"),
                     ]);
                 }
 
@@ -434,7 +498,40 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 //     table.add_row(row![bt.id, bt.name, bt.r#type.unwrap_or("None".to_string())]);
                 // }
                 // table.printstd();
-            }
+            },
+
+            Commands::RunDeploy { build_id, env } => {
+
+                let env_ = env.unwrap_or("44".to_string()); // TODO: use CONFIG
+
+                let body = DeployBody {
+                    build_type: BuildTypeBody {
+                        id: format!("QADeployAPAPWorkflow{}", env_),
+                    },
+                    properties: DeployProperties {
+                        property: vec![
+                            Property {
+                                name: "IMAGE_TAG".to_string(),
+                                value: build_id,
+                            }
+                        ]
+                    }
+                };
+
+                let response = client.post(format!("{host}/app/rest/buildQueue", host = CONFIG.teamcity.host))
+                    .json(&body)
+                    .send()
+                    .await?
+                    .json::<BuildQueue>()
+                    .await?
+                ;
+
+                println!("{:?}", response);
+            },
+
+            Commands::Init {} => {
+
+            },
         }
 
     }
