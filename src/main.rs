@@ -25,6 +25,8 @@ use std::path::{Path, PathBuf};
 use struct_field_names_as_array::FieldNamesAsArray;
 use reqwest::header;
 
+mod deploy;
+
 #[derive(Debug, Deserialize)]
 struct TeamcitySettings {
     host: String,
@@ -32,7 +34,7 @@ struct TeamcitySettings {
 }
 
 #[derive(Debug, Deserialize)]
-struct Settings {
+pub struct Settings {
     teamcity: TeamcitySettings,
     build_types: HashMap<String, String>,
 }
@@ -62,7 +64,7 @@ impl Settings {
 }
 
 lazy_static! {
-    static ref CONFIG: Settings = {
+    pub static ref CONFIG: Settings = {
         Settings::new().unwrap()
     };
 
@@ -144,26 +146,6 @@ struct BuildBody {
     build_type: BuildTypeBody,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct Property {
-    name: String,
-    value: String,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct DeployProperties {
-    property: Vec<Property>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct DeployBody {
-    build_type: BuildTypeBody,
-    properties: DeployProperties,
-}
-
 // enum BuildTypeType {
 //     Regular = "regular",
 //     Deployment = "deployment",
@@ -173,7 +155,7 @@ struct DeployBody {
 #[derive(Debug, Serialize, Deserialize, FieldNamesAsArray)]
 #[serde(rename_all = "camelCase")]
 #[field_names_as_array(rename_all = "camelCase")]
-struct BuildType {
+pub struct BuildType {
     id: String,
     name: String,
     project_name: String,
@@ -212,7 +194,7 @@ struct Triggered {
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct BuildQueue {
+pub struct BuildQueue {
     id: i32,
     build_type_id: String,
     state: String,
@@ -227,7 +209,7 @@ struct BuildQueue {
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct Build {
+pub struct Build {
     id: i32,
     build_type_id: String,
     number: Option<String>,
@@ -501,32 +483,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             },
 
             Commands::RunDeploy { build_id, env } => {
+                let response = crate::deploy::run_deploy(&client, &build_id, env.as_deref()).await;
 
-                let env_ = env.unwrap_or("44".to_string()); // TODO: use CONFIG
-
-                let body = DeployBody {
-                    build_type: BuildTypeBody {
-                        id: format!("QADeployAPAPWorkflow{}", env_),
-                    },
-                    properties: DeployProperties {
-                        property: vec![
-                            Property {
-                                name: "IMAGE_TAG".to_string(),
-                                value: build_id,
-                            }
-                        ]
-                    }
-                };
-
-                let response = client.post(format!("{host}/app/rest/buildQueue", host = CONFIG.teamcity.host))
-                    .json(&body)
-                    .send()
-                    .await?
-                    .json::<BuildQueue>()
-                    .await?
-                ;
-
-                println!("{:?}", response);
+                println!("{:#?}", response.unwrap());
             },
 
             Commands::Init {} => {
