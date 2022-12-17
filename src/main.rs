@@ -7,6 +7,7 @@ extern crate xdg;
 extern crate simplelog;
 
 use simplelog::TermLogger;
+use chrono_humanize::HumanTime;
 
 use arboard::Clipboard;
 use chrono::prelude::*;
@@ -14,18 +15,20 @@ use clap_complete::{generate, Generator, Shell};
 use clap::{Parser, Command, CommandFactory, Subcommand};
 use config::{Config, ConfigError};
 use console::style;
-use git2::Repository;
 use prettytable::format::{TableFormat, FormatBuilder, LinePosition, LineSeparator};
 use prettytable::Table;
 use serde::{Deserialize, Serialize};
 use skim::prelude::*;
 use std::collections::HashMap;
-use std::{env, fs, io};
-use std::path::{Path, PathBuf};
+use std::{fs, io};
+use std::cmp::Ordering;
 use struct_field_names_as_array::FieldNamesAsArray;
 use reqwest::header;
 
 mod deploy;
+mod normalize;
+
+use crate::normalize::*;
 
 #[derive(Debug, Deserialize)]
 struct TeamcitySettings {
@@ -242,42 +245,8 @@ struct BuildTypes {
     build_type: Vec<BuildType>,
 }
 
-fn normalize_path(path: &Option<String>) -> PathBuf {
-    let path_buf = match path {
-        Some(p) => Path::new(p).to_owned(),
-        None => env::current_dir().unwrap()
-    };
-
-    path_buf.canonicalize().unwrap()
-}
-
-fn normalize_branch_name(branch_name: &Option<String>, path: &Path) -> String {
-    branch_name.as_deref().map(|s| s.to_string()).unwrap_or_else(|| {
-        let repo = Repository::open(&path).unwrap();
-        let head = repo.head().unwrap();
-        head.shorthand().map(|s| s.to_string()).unwrap()
-    })
-}
-
-fn get_build_type_by_path(path: &Path) -> String {
-    let basename = path.file_name().unwrap().to_str().unwrap();
-    CONFIG.build_types.get(basename).unwrap().to_string()
-}
-
-fn normalize_build_type(build_type: &Option<String>, path: &Path) -> String {
-    build_type.as_deref().map(|s| s.to_string()).unwrap_or_else(|| {
-        get_build_type_by_path(path)
-    })
-}
-
 fn print_completions<G: Generator>(gen: G, cmd: &mut Command) {
     generate(gen, cmd, cmd.get_name().to_string(), &mut io::stdout());
-}
-
-fn normalize_field_names(fields: &[&str]) -> String {
-    fields.into_iter()
-        .map(|s| s.replace("r#", "")).collect::<Vec<String>>()
-        .join(",")
 }
 
 fn create_client() -> reqwest::Client {
@@ -415,8 +384,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 _ => "?"
                             },
                             b.finish_on_agent_date
-                                .and_then(|str| DateTime::parse_from_str(&str, "%Y%m%dT%H%M%S%z").ok())
-                                .and_then(|date| Some(date.format("%a, %d %b %R").to_string()))
+                                .and_then(|str| DateTime::parse_from_str(&str, "%Y%m%dT%H%M%S%z").map(|dt| dt.with_timezone(&chrono::Local)).ok())
+                                .and_then(|date| {
+                                    let delta = chrono::Local::now() - chrono::Duration::hours(1);
+                                    let value = match date.partial_cmp(&delta) {
+                                        Some(Ordering::Greater) => HumanTime::from(date).to_string(),
+                                        _ => date.format("%a, %d %b %R").to_string()
+                                    };
+
+                                    Some(value)
+                                })
                                 .unwrap_or(String::default()),
                         ),
                         b.build_type_id,
