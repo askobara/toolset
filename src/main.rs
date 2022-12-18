@@ -13,58 +13,22 @@ use arboard::Clipboard;
 use chrono::prelude::*;
 use clap_complete::{generate, Generator, Shell};
 use clap::{Parser, Command, CommandFactory, Subcommand};
-use config::{Config, ConfigError};
 use console::style;
 use prettytable::format::{TableFormat, FormatBuilder, LinePosition, LineSeparator};
 use prettytable::Table;
 use serde::{Deserialize, Serialize};
 use skim::prelude::*;
-use std::collections::HashMap;
-use std::{fs, io};
+use std::io;
 use std::cmp::Ordering;
 use struct_field_names_as_array::FieldNamesAsArray;
 use reqwest::header;
 
+mod settings;
 mod deploy;
 mod normalize;
 
 use crate::normalize::*;
-
-#[derive(Debug, Deserialize)]
-struct TeamcitySettings {
-    host: String,
-    auth_token: String,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct Settings {
-    teamcity: TeamcitySettings,
-    build_types: HashMap<String, String>,
-}
-
-impl Settings {
-    pub fn new() -> Result<Self, ConfigError> {
-        let config_path = xdg::BaseDirectories::with_prefix("teamcity").ok()
-            .and_then(|xdg_dir| xdg_dir.place_config_file("config.toml").ok())
-            .and_then(|path| {
-                if !path.as_path().exists() {
-                    fs::File::create(&path).expect("unable to create config file");
-                }
-                Some(path)
-            })
-            .unwrap();
-
-        let settings = Config::builder()
-            .add_source(config::File::with_name(config_path.to_str().unwrap()))
-            // Add in settings from the environment (with a prefix of APP)
-            // Eg.. `APP_DEBUG=1 ./target/app` would set the `debug` key
-            .add_source(config::Environment::with_prefix("APP"))
-            .build()
-            .unwrap();
-
-        settings.try_deserialize()
-    }
-}
+use crate::settings::*;
 
 lazy_static! {
     pub static ref CONFIG: Settings = {
@@ -75,6 +39,7 @@ lazy_static! {
         .column_separator(' ')
         .separator(LinePosition::Top,    LineSeparator::new('─', ' ', ' ', ' '))
         .separator(LinePosition::Title,  LineSeparator::new('─', ' ', ' ', ' '))
+        .separator(LinePosition::Intern, LineSeparator::new('┈', ' ', ' ', ' '))
         .separator(LinePosition::Bottom, LineSeparator::new('─', ' ', ' ', ' '))
         .padding(1, 1)
         .build();
@@ -301,8 +266,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     branch_name: branch.clone(),
                 };
 
-                println!("{:?}", body);
-
                 let response = client.post(format!("{}/app/rest/buildQueue", CONFIG.teamcity.host))
                     .json(&body)
                     .send()
@@ -366,7 +329,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let mut table = Table::new();
                 table.set_format(*TABLE_FORMAT);
 
-                table.set_titles(row!["", "date", "build type", "url", "branch"]);
+                table.set_titles(row!["", "date", "build type", "build id", "url (branch)"]);
                 for b in response.build {
                     table.add_row(row![
                         match b.status.as_deref().unwrap_or("UNKNOWN") {
@@ -397,9 +360,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 .unwrap_or(String::default()),
                         ),
                         b.build_type_id,
+                        b.id,
                         // style(format!("\x1b]8;;{url}\x1b\\{text}\x1b]8;;\x1b\\", url = b.web_url, text = b.number)),
-                        style(b.web_url).blue().underlined(),
-                        b.branch_name.as_deref().unwrap_or("master (default branch)"),
+                        format!(
+                            "{url}\n{branch}",
+                            url = style(b.web_url).blue().underlined(),
+                            branch = b.branch_name.as_deref().unwrap_or("master (default branch)"),
+                        ),
                     ]);
                 }
 
