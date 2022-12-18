@@ -425,9 +425,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             },
 
             Commands::RunDeploy { build_id, env, workdir, build_type } => {
-                let response = crate::deploy::run_deploy(&client, build_id.as_deref(), env.as_deref(), workdir.as_deref(), build_type.as_deref()).await;
+                let response = crate::deploy::run_deploy(&client, build_id.as_deref(), env.as_deref(), workdir.as_deref(), build_type.as_deref()).await?;
 
-                println!("{:#?}", response.unwrap());
+                println!("{}", response.web_url);
             },
 
             Commands::Init {} => {
