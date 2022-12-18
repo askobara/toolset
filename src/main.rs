@@ -22,6 +22,8 @@ use std::io;
 use std::cmp::Ordering;
 use struct_field_names_as_array::FieldNamesAsArray;
 use reqwest::header;
+use std::fs::File;
+use std::io::{Write, Read};
 
 mod settings;
 mod deploy;
@@ -69,9 +71,13 @@ enum Commands {
     #[command()]
     RunDeploy {
         #[arg(short, long)]
-        build_id: String,
+        build_id: Option<String>,
         #[arg(short, long)]
         env: Option<String>,
+        #[arg(long)]
+        workdir: Option<String>,
+        #[arg(long)]
+        build_type: Option<String>,
     },
 
     #[command()]
@@ -232,6 +238,27 @@ fn create_client() -> reqwest::Client {
         .build().unwrap()
 }
 
+pub fn save_as_last_build(build: &BuildQueue) {
+    let path = xdg::BaseDirectories::with_prefix("teamcity").ok()
+        .and_then(|xdg_dir| xdg_dir.place_state_file(build.build_type_id.clone()).ok())
+        .unwrap();
+
+    let mut file = File::create(&path).unwrap();
+    write!(&mut file, "{}", build.id).unwrap();
+}
+
+pub fn get_last_build(build_type: &str) -> Option<i32> {
+    let path = xdg::BaseDirectories::with_prefix("teamcity").ok()
+        .and_then(|xdg_dir| Some(xdg_dir.get_state_file(build_type)))
+        .unwrap();
+
+    File::open(&path).ok().and_then(|mut file| {
+        let mut str = String::new();
+        let _ = file.read_to_string(&mut str);
+        str.parse().ok()
+    })
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     TermLogger::init(
@@ -255,8 +282,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         match command {
             Commands::RunBuild { branch_name, workdir } => {
-                let path = normalize_path(&workdir);
-                let branch = normalize_branch_name(&branch_name, &path);
+                let path = normalize_path(workdir.as_deref());
+                let branch = normalize_branch_name(branch_name.as_deref(), &path);
                 let build_type = get_build_type_by_path(&path);
 
                 let body = BuildBody {
@@ -275,6 +302,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                 println!("{}", response.web_url);
 
+                save_as_last_build(&response);
+
                 let mut clipboard = Clipboard::new().unwrap();
                 if clipboard.set_text(response.web_url).is_ok() {
                     // FIXME: x11 will clear the clipboard when program is exit
@@ -283,9 +312,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             },
 
             Commands::ListBuilds { workdir, branch_name, build_type, author, limit } => {
-                let path = normalize_path(&workdir);
-                let branch = normalize_branch_name(&branch_name, &path);
-                let btype = normalize_build_type(&build_type, &path);
+                let path = normalize_path(workdir.as_deref());
+                let branch = normalize_branch_name(branch_name.as_deref(), &path);
+                let btype = normalize_build_type(build_type.as_deref(), &path);
 
                 let mut locator: Vec<String> = vec![
                     format!("defaultFilter:false"),
@@ -426,8 +455,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 // table.printstd();
             },
 
-            Commands::RunDeploy { build_id, env } => {
-                let response = crate::deploy::run_deploy(&client, &build_id, env.as_deref()).await;
+            Commands::RunDeploy { build_id, env, workdir, build_type } => {
+                let response = crate::deploy::run_deploy(&client, build_id.as_deref(), env.as_deref(), workdir.as_deref(), build_type.as_deref()).await;
 
                 println!("{:#?}", response.unwrap());
             },

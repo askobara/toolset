@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 use crate::CONFIG;
 
-pub fn normalize_path(path: &Option<String>) -> PathBuf {
+pub fn normalize_path(path: Option<&str>) -> PathBuf {
     let path_buf = match path {
         Some(p) => Path::new(p).to_owned(),
         None => std::env::current_dir().unwrap()
@@ -10,16 +10,16 @@ pub fn normalize_path(path: &Option<String>) -> PathBuf {
     path_buf.canonicalize().unwrap()
 }
 
-pub fn normalize_branch_name(branch_name: &Option<String>, path: &Path) -> String {
-    branch_name.as_deref().map(|s| s.to_string()).unwrap_or_else(|| {
+pub fn normalize_branch_name(branch_name: Option<&str>, path: &Path) -> String {
+    branch_name.map(|s| s.to_string()).unwrap_or_else(|| {
         let repo = git2::Repository::open(&path).unwrap();
         let head = repo.head().unwrap();
         head.shorthand().map(|s| s.to_string()).unwrap()
     })
 }
 
-pub fn normalize_build_type(build_type: &Option<String>, path: &Path) -> String {
-    build_type.as_deref().map(|s| s.to_string()).unwrap_or_else(|| {
+pub fn normalize_build_type(build_type: Option<&str>, path: &Path) -> String {
+    build_type.map(|s| s.to_string()).unwrap_or_else(|| {
         get_build_type_by_path(path)
     })
 }

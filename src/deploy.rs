@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 
+use std::fmt;
 use skim::prelude::*;
+use crate::normalize::*;
 use crate::{BuildType, BuildQueue, BuildTypeBody, CONFIG};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -72,14 +74,79 @@ struct DeployBody {
     snapshot_dependencies: DeployBuilds,
 }
 
-pub async fn run_deploy(client: &reqwest::Client, build_id: &str, env: Option<&str>) -> Result<BuildQueue, Box<dyn std::error::Error>>
+#[derive(Debug, Default)]
+struct BuildLocator {
+    id: Option<i32>,
+    user: Option<String>,
+    build_type: Option<String>,
+}
+
+impl BuildLocator {
+    fn id(&mut self, value: Option<i32>) {
+        self.id = value;
+    }
+
+    fn user(&mut self, value: Option<&str>) {
+        self.user = value.map(ToOwned::to_owned);
+    }
+
+    fn build_type(&mut self, value: Option<&str>) {
+        self.build_type = value.map(ToOwned::to_owned);
+    }
+}
+
+impl fmt::Display for BuildLocator {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut locators: Vec<String> = Vec::new();
+
+        if let Some(id) = self.id {
+            locators.push(format!("id:{}", id));
+        }
+
+        if let Some(user) = &self.user {
+            locators.push(format!("user:{}", user));
+        }
+
+        if let Some(build_type) = &self.build_type {
+            locators.push(format!("buildType:{}", build_type));
+        }
+
+        write!(f, "{}", locators.join(","))
+    }
+}
+
+async fn get_build(client: &reqwest::Client, locator: &BuildLocator) -> Result<Build, Box<dyn std::error::Error>> {
+    let url = format!(
+        "{host}/app/rest/builds/{locator}?fields=id,buildTypeId,branchName,number,buildType:(id,name,project:(id,name,projects:(count,project:(id,name,buildTypes:(count,buildType)))))",
+        host = CONFIG.teamcity.host,
+        locator = locator,
+    );
+
+    let build = client.get(url).send().await?.json::<Build>().await?;
+
+    Ok(build)
+}
+
+pub async fn run_deploy(client: &reqwest::Client, build_id: Option<&str>, env: Option<&str>, workdir: Option<&str>, build_type: Option<&str>) -> Result<BuildQueue, Box<dyn std::error::Error>>
 {
-    let build = client.get(format!("{host}/app/rest/builds/id:{build_id}?fields=id,buildTypeId,branchName,number,buildType:(id,name,project:(id,name,projects:(count,project:(id,name,buildTypes:(count,buildType)))))", host = CONFIG.teamcity.host))
-        .send()
-        .await?
-        .json::<Build>()
-        .await?
-    ;
+    let path = normalize_path(workdir);
+    let btype = normalize_build_type(build_type, &path);
+
+    let id: Option<i32> = build_id.and_then(|v| v.parse().ok()).or_else(|| {
+        // try to get id of last build from a local state file
+        crate::get_last_build(&btype)
+    });
+
+    let mut locator = BuildLocator::default();
+
+    if id.is_some() {
+        locator.id(id);
+    } else {
+        locator.build_type(Some(btype).as_deref());
+        locator.user(Some("current"));
+    }
+
+    let build = get_build(client, &locator).await?;
 
     let options = SkimOptionsBuilder::default()
         .prompt(Some("Select an environment where to deploy: "))
@@ -90,8 +157,7 @@ pub async fn run_deploy(client: &reqwest::Client, build_id: &str, env: Option<&s
         .preview_window(Some("right:70%"))
         .query(env)
         .select1(env.is_some())
-        .build()
-        .unwrap();
+        .build()?;
 
     let (tx_item, rx_item): (SkimItemSender, SkimItemReceiver) = unbounded();
 
