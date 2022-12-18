@@ -26,6 +26,7 @@ use std::fs::File;
 use std::io::{Write, Read};
 
 mod settings;
+mod build;
 mod deploy;
 mod normalize;
 
@@ -106,18 +107,6 @@ enum Commands {
     #[command()]
     Init {
     },
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct BuildTypeBody {
-    id: String,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct BuildBody {
-    branch_name: String,
-    build_type: BuildTypeBody,
 }
 
 // enum BuildTypeType {
@@ -282,30 +271,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         match command {
             Commands::RunBuild { branch_name, workdir } => {
-                let path = normalize_path(workdir.as_deref());
-                let branch = normalize_branch_name(branch_name.as_deref(), &path);
-                let build_type = get_build_type_by_path(&path);
-
-                let body = BuildBody {
-                    build_type: BuildTypeBody {
-                        id: build_type.clone(),
-                    },
-                    branch_name: branch.clone(),
-                };
-
-                let response = client.post(format!("{}/app/rest/buildQueue", CONFIG.teamcity.host))
-                    .json(&body)
-                    .send()
-                    .await?
-                    .json::<BuildQueue>()
-                    .await?;
-
-                println!("{}", response.web_url);
-
-                save_as_last_build(&response);
+                let build = crate::build::run_build(&client, workdir.as_deref(), branch_name.as_deref()).await?;
 
                 let mut clipboard = Clipboard::new().unwrap();
-                if clipboard.set_text(response.web_url).is_ok() {
+                if clipboard.set_text(build.web_url).is_ok() {
                     // FIXME: x11 will clear the clipboard when program is exit
                     println!("{}", style("✔ copied!").green().italic());
                 }

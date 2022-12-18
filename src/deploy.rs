@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 use skim::prelude::*;
 use crate::normalize::*;
-use crate::{BuildType, BuildQueue, BuildTypeBody, CONFIG};
+use crate::{BuildType, BuildQueue, CONFIG};
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -63,6 +63,11 @@ struct DeployBuild {
 #[serde(rename_all = "camelCase")]
 struct DeployBuilds {
     build: Vec<DeployBuild>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct BuildTypeBody {
+    id: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
