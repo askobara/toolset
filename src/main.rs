@@ -7,7 +7,6 @@ extern crate xdg;
 extern crate simplelog;
 
 use simplelog::TermLogger;
-use chrono_humanize::HumanTime;
 
 use arboard::Clipboard;
 use chrono::prelude::*;
@@ -19,7 +18,6 @@ use prettytable::Table;
 use serde::{Deserialize, Serialize};
 use skim::prelude::*;
 use std::io;
-use std::cmp::Ordering;
 use struct_field_names_as_array::FieldNamesAsArray;
 use reqwest::header;
 use std::fs::File;
@@ -248,6 +246,20 @@ pub fn get_last_build(build_type: &str) -> Option<i32> {
     })
 }
 
+fn format_datetime(datetime: &chrono::DateTime<chrono::FixedOffset>) -> String {
+    let duration = chrono::Utc::now().signed_duration_since(*datetime);
+
+    match (duration.num_hours(), duration.num_minutes(), duration.num_seconds()) {
+        (4 .., _, _) => datetime.with_timezone(&chrono::Local).format("%a, %d %b %R").to_string(),
+        (hours @ 2 ..= 4, _, _) => format!("{hours} hours ago"),
+        (hours @ 1, _, _) => format!("{hours} hour ago"),
+        (_, mins @ 2 .., _) => format!("{mins} minutes ago"),
+        (_, mins @ 1, _) => format!("{mins} minute ago"),
+        (_, _, secs @ 10 ..) => format!("{secs} seconds ago"),
+        (_, _, _) => format!("a few moments ago"),
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     TermLogger::init(
@@ -345,16 +357,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 _ => "?"
                             },
                             b.finish_on_agent_date
-                                .and_then(|str| DateTime::parse_from_str(&str, "%Y%m%dT%H%M%S%z").map(|dt| dt.with_timezone(&chrono::Local)).ok())
-                                .and_then(|date| {
-                                    let delta = chrono::Local::now() - chrono::Duration::hours(1);
-                                    let value = match date.partial_cmp(&delta) {
-                                        Some(Ordering::Greater) => HumanTime::from(date).to_string(),
-                                        _ => date.format("%a, %d %b %R").to_string()
-                                    };
-
-                                    Some(value)
-                                })
+                                .and_then(|str| DateTime::parse_from_str(&str, "%Y%m%dT%H%M%S%z").ok())
+                                .and_then(|date| Some(format_datetime(&date)))
                                 .unwrap_or(String::default()),
                         ),
                         b.build_type_id,
