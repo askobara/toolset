@@ -6,6 +6,7 @@ extern crate xdg;
 #[macro_use] extern crate log;
 extern crate simplelog;
 
+use anyhow::Result;
 use simplelog::TermLogger;
 
 use arboard::Clipboard;
@@ -20,8 +21,6 @@ use skim::prelude::*;
 use std::io;
 use struct_field_names_as_array::FieldNamesAsArray;
 use reqwest::header;
-use std::fs::File;
-use std::io::{Write, Read};
 
 mod settings;
 mod build;
@@ -207,43 +206,22 @@ fn print_completions<G: Generator>(gen: G, cmd: &mut Command) {
     generate(gen, cmd, cmd.get_name().to_string(), &mut io::stdout());
 }
 
-fn create_client() -> reqwest::Client {
+fn create_client() -> Result<reqwest::Client> {
     let mut headers = header::HeaderMap::new();
 
     // {host}/profile.html?item=accessTokens
     let token = format!("Bearer {}", CONFIG.teamcity.auth_token);
     // Consider marking security-sensitive headers with `set_sensitive`.
-    let mut auth_value = header::HeaderValue::from_str(&token).unwrap();
+    let mut auth_value = header::HeaderValue::from_str(&token)?;
     auth_value.set_sensitive(true);
     headers.insert(header::AUTHORIZATION, auth_value);
 
     headers.insert(header::CONTENT_TYPE, header::HeaderValue::from_static("application/json"));
     headers.insert(header::ACCEPT, header::HeaderValue::from_static("application/json"));
 
-    reqwest::Client::builder()
-        .default_headers(headers)
-        .build().unwrap()
-}
+    let client = reqwest::Client::builder().default_headers(headers).build()?;
 
-pub fn save_as_last_build(build: &BuildQueue) {
-    let path = xdg::BaseDirectories::with_prefix("teamcity").ok()
-        .and_then(|xdg_dir| xdg_dir.place_state_file(build.build_type_id.clone()).ok())
-        .unwrap();
-
-    let mut file = File::create(&path).unwrap();
-    write!(&mut file, "{}", build.id).unwrap();
-}
-
-pub fn get_last_build(build_type: &str) -> Option<i32> {
-    let path = xdg::BaseDirectories::with_prefix("teamcity").ok()
-        .and_then(|xdg_dir| Some(xdg_dir.get_state_file(build_type)))
-        .unwrap();
-
-    File::open(&path).ok().and_then(|mut file| {
-        let mut str = String::new();
-        let _ = file.read_to_string(&mut str);
-        str.parse().ok()
-    })
+    Ok(client)
 }
 
 fn format_datetime(datetime: &chrono::DateTime<chrono::FixedOffset>) -> String {
@@ -261,14 +239,13 @@ fn format_datetime(datetime: &chrono::DateTime<chrono::FixedOffset>) -> String {
 }
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> Result<()> {
     TermLogger::init(
         simplelog::LevelFilter::Info,
         simplelog::Config::default(),
         simplelog::TerminalMode::Stdout,
         simplelog::ColorChoice::Auto,
-    )
-    .unwrap();
+    )?;
 
     let cli = Cli::parse();
 
@@ -279,13 +256,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         return Ok(());
     } else if let Some(command) = cli.command {
-        let client = create_client();
+        let client = create_client()?;
 
         match command {
             Commands::RunBuild { branch_name, workdir } => {
                 let build = crate::build::run_build(&client, workdir.as_deref(), branch_name.as_deref()).await?;
 
-                let mut clipboard = Clipboard::new().unwrap();
+                let mut clipboard = Clipboard::new()?;
                 if clipboard.set_text(build.web_url).is_ok() {
                     // FIXME: x11 will clear the clipboard when program is exit
                     println!("{}", style("✔ copied!").green().italic());

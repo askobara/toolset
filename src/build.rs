@@ -1,6 +1,7 @@
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use crate::normalize::*;
-use crate::{BuildQueue, CONFIG, save_as_last_build};
+use crate::{BuildQueue, CONFIG};
 
 #[derive(Debug, Serialize, Deserialize)]
 struct BuildTypeBody {
@@ -14,7 +15,7 @@ struct BuildBody {
     build_type: BuildTypeBody,
 }
 
-pub async fn run_build(client: &reqwest::Client, workdir: Option<&str>, branch_name: Option<&str>) -> Result<BuildQueue, Box<dyn std::error::Error>> {
+pub async fn run_build(client: &reqwest::Client, workdir: Option<&str>, branch_name: Option<&str>) -> Result<BuildQueue> {
     let path = normalize_path(workdir);
     let branch = normalize_branch_name(branch_name, &path);
     let build_type = get_build_type_by_path(&path);
@@ -34,8 +35,6 @@ pub async fn run_build(client: &reqwest::Client, workdir: Option<&str>, branch_n
     .await?;
 
     println!("{}", response.web_url);
-
-    save_as_last_build(&response);
 
     Ok(response)
 }

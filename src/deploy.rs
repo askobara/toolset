@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 
+use anyhow::{Result, bail};
 use std::fmt;
 use skim::prelude::*;
 use crate::normalize::*;
@@ -48,9 +49,13 @@ struct BuildTypeWithProject {
 pub struct Build {
     id: i32,
     build_type_id: String,
-    branch_name: String,
+    branch_name: Option<String>,
     number: String,
     build_type: BuildTypeWithProject,
+    /// queued/running/finished
+    state: String,
+    /// SUCCESS/FAILURE/UNKNOWN
+    status: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -73,7 +78,7 @@ struct BuildTypeBody {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct DeployBody {
-    branch_name: String,
+    branch_name: Option<String>,
     build_type: BuildTypeBody,
     #[serde(rename = "snapshot-dependencies")]
     snapshot_dependencies: DeployBuilds,
@@ -120,7 +125,7 @@ impl fmt::Display for BuildLocator {
     }
 }
 
-async fn get_build(client: &reqwest::Client, locator: &BuildLocator) -> Result<Build, Box<dyn std::error::Error>> {
+async fn get_build(client: &reqwest::Client, locator: &BuildLocator) -> Result<Build> {
     let url = format!(
         "{host}/app/rest/builds/{locator}?fields=id,buildTypeId,branchName,number,buildType:(id,name,project:(id,name,projects:(count,project:(id,name,buildTypes:(count,buildType)))))",
         host = CONFIG.teamcity.host,
@@ -129,20 +134,27 @@ async fn get_build(client: &reqwest::Client, locator: &BuildLocator) -> Result<B
 
     let build = client.get(url).send().await?.json::<Build>().await?;
 
-    Ok(build)
+    match (build.state.as_str(), build.status.as_deref()) {
+        (_, Some("FAILURE")) => bail!("Build #{id} is failed", id = build.id),
+        ("queued", _) => bail!("Build #{id} is queued", id = build.id),
+        (_, _) => Ok(build),
+    }
 }
 
-pub async fn run_deploy(client: &reqwest::Client, build_id: Option<&str>, env: Option<&str>, workdir: Option<&str>, build_type: Option<&str>) -> Result<BuildQueue, Box<dyn std::error::Error>>
-{
+pub async fn run_deploy(
+    client: &reqwest::Client,
+    build_id: Option<&str>,
+    env: Option<&str>,
+    workdir: Option<&str>,
+    build_type: Option<&str>
+) -> Result<BuildQueue> {
     let path = normalize_path(workdir);
     let btype = normalize_build_type(build_type, &path);
 
-    let id: Option<i32> = build_id.and_then(|v| v.parse().ok()).or_else(|| {
-        // try to get id of last build from a local state file
-        crate::get_last_build(&btype)
-    });
+    // TODO: deploy the last master build, when build_id is "master"
 
     let mut locator = BuildLocator::default();
+    let id: Option<i32> = build_id.and_then(|v| v.parse().ok());
 
     if id.is_some() {
         locator.id(id);
@@ -162,7 +174,8 @@ pub async fn run_deploy(client: &reqwest::Client, build_id: Option<&str>, env: O
         .preview_window(Some("right:70%"))
         .query(env)
         .select1(env.is_some())
-        .build()?;
+        .build()
+        .unwrap();
 
     let (tx_item, rx_item): (SkimItemSender, SkimItemReceiver) = unbounded();
 
