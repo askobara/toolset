@@ -234,7 +234,7 @@ fn format_datetime(datetime: &chrono::DateTime<chrono::FixedOffset>) -> String {
         (_, mins @ 2 .., _) => format!("{mins} minutes ago"),
         (_, mins @ 1, _) => format!("{mins} minute ago"),
         (_, _, secs @ 10 ..) => format!("{secs} seconds ago"),
-        (_, _, _) => format!("a few moments ago"),
+        (_, _, _) => "a few moments ago".to_string(),
     }
 }
 
@@ -281,21 +281,21 @@ async fn main() -> Result<()> {
                 ];
 
                 if branch != "any" {
-                    locator.push(format!("branch:{}", branch));
+                    locator.push(format!("branch:{branch}"));
                 } else {
-                    locator.push(format!("branch:default:any"));
+                    locator.push("branch:default:any".to_string());
                 }
 
                 if btype == "build" || btype == "b" {
-                    locator.push(format!("buildType:(type:regular,name:Build)"));
+                    locator.push("buildType:(type:regular,name:Build)".to_string());
                 } else if btype == "deploy" || btype == "d" {
-                    locator.push(format!("buildType:(type:deployment)"));
+                    locator.push("buildType:(type:deployment)".to_string());
                 } else if btype != "any" {
-                    locator.push(format!("buildType:{}", btype));
+                    locator.push(format!("buildType:{btype}"));
                 }
 
                 if let Some(author) = author {
-                    locator.push(format!("user:{}", author));
+                    locator.push(format!("user:{author}"));
                 }
 
                 let url = format!(
@@ -323,7 +323,7 @@ async fn main() -> Result<()> {
                             "SUCCESS" => format!("{}", style("✓").green().bold()),
                             "FAILURE" => format!("{}", style("✗").red().bold()),
                             "UNKNOWN" => format!("{}", style("?").bold()),
-                            _ => format!("unexpected status")
+                            _ => "unexpected status".to_string()
                         },
                         format!(
                             "{} {}",
@@ -335,8 +335,8 @@ async fn main() -> Result<()> {
                             },
                             b.finish_on_agent_date
                                 .and_then(|str| DateTime::parse_from_str(&str, "%Y%m%dT%H%M%S%z").ok())
-                                .and_then(|date| Some(format_datetime(&date)))
-                                .unwrap_or(String::default()),
+                                .map(|date| format_datetime(&date))
+                                .unwrap_or_default(),
                         ),
                         b.build_type_id,
                         b.id,
@@ -353,9 +353,9 @@ async fn main() -> Result<()> {
             },
 
             Commands::ListBuildTypes {} => {
-                let fields = format!("{}", normalize_field_names(&BuildTypes::FIELD_NAMES_AS_ARRAY)).replace(
+                let fields = normalize_field_names(BuildTypes::FIELD_NAMES_AS_ARRAY).replace(
                     "buildType",
-                    &format!("buildType({})", normalize_field_names(&BuildType::FIELD_NAMES_AS_ARRAY))
+                    &format!("buildType({})", normalize_field_names(BuildType::FIELD_NAMES_AS_ARRAY))
                 );
 
                 let url = format!(

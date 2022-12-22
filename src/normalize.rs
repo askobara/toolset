@@ -12,7 +12,7 @@ pub fn normalize_path(path: Option<&str>) -> PathBuf {
 
 pub fn normalize_branch_name(branch_name: Option<&str>, path: &Path) -> String {
     branch_name.map(|s| s.to_string()).unwrap_or_else(|| {
-        let repo = git2::Repository::open(&path).unwrap();
+        let repo = git2::Repository::open(path).unwrap();
         let head = repo.head().unwrap();
         head.shorthand().map(|s| s.to_string()).unwrap()
     })
@@ -25,7 +25,7 @@ pub fn normalize_build_type(build_type: Option<&str>, path: &Path) -> String {
 }
 
 pub fn normalize_field_names(fields: &[&str]) -> String {
-    fields.into_iter()
+    fields.iter()
         .map(|s| s.replace("r#", "")).collect::<Vec<String>>()
         .join(",")
 }

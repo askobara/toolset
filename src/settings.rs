@@ -19,11 +19,11 @@ impl Settings {
     pub fn new() -> Result<Self, ConfigError> {
         let config_path = xdg::BaseDirectories::with_prefix("teamcity").ok()
             .and_then(|xdg_dir| xdg_dir.place_config_file("config.toml").ok())
-            .and_then(|path| {
+            .map(|path| {
                 if !path.as_path().exists() {
                     fs::File::create(&path).expect("unable to create config file");
                 }
-                Some(path)
+                path
             })
             .unwrap();
 

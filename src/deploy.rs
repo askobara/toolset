@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use anyhow::{Result, bail};
+use anyhow::{Result, Context, bail};
 use std::fmt;
 use skim::prelude::*;
 use crate::normalize::*;
@@ -127,7 +127,7 @@ impl fmt::Display for BuildLocator {
 
 async fn get_build(client: &reqwest::Client, locator: &BuildLocator) -> Result<Build> {
     let url = format!(
-        "{host}/app/rest/builds/{locator}?fields=id,buildTypeId,branchName,number,buildType:(id,name,project:(id,name,projects:(count,project:(id,name,buildTypes:(count,buildType)))))",
+        "{host}/app/rest/builds/{locator}?fields=id,buildTypeId,branchName,number,state,status,buildType:(id,name,project:(id,name,projects:(count,project:(id,name,buildTypes:(count,buildType)))))",
         host = CONFIG.teamcity.host,
         locator = locator,
     );
@@ -187,16 +187,10 @@ pub async fn run_deploy(
     drop(tx_item); // so that skim could know when to stop waiting for more items.
 
     let selected_items = Skim::run_with(&options, Some(rx_item))
-        .map(|out| {
-            if !out.is_abort {
-                out.selected_items
-            } else {
-                Vec::new()
-            }
-        })
+        .map(|out| out.selected_items)
         .unwrap_or_else(Vec::new);
 
-    let selected_build_type = selected_items.first().expect("No env selected").text().to_string();
+    let selected_build_type = selected_items.first().map(|v| v.text().to_string()).context("No env selected")?;
 
     let body = DeployBody {
         branch_name: build.branch_name,
