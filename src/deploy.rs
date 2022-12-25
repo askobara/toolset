@@ -148,9 +148,6 @@ pub async fn run_deploy(
     workdir: Option<&str>,
     build_type: Option<&str>
 ) -> Result<BuildQueue> {
-    let path = normalize_path(workdir);
-    let btype = normalize_build_type(build_type, &path);
-
     // TODO: deploy the last master build, when build_id is "master"
 
     let mut locator = BuildLocator::default();
@@ -159,6 +156,9 @@ pub async fn run_deploy(
     if id.is_some() {
         locator.id(id);
     } else {
+        let path = normalize_path(workdir);
+        let btype = normalize_build_type(build_type, &path);
+
         locator.build_type(Some(btype).as_deref());
         locator.user(Some("current"));
     }
@@ -167,9 +167,7 @@ pub async fn run_deploy(
 
     let options = SkimOptionsBuilder::default()
         .prompt(Some("Select an environment where to deploy: "))
-        // .margin(Some("0,50%,0,0"))
         .height(Some("30%"))
-        .multi(false)
         .preview(Some(""))
         .preview_window(Some("right:70%"))
         .query(env)
@@ -187,15 +185,18 @@ pub async fn run_deploy(
     drop(tx_item); // so that skim could know when to stop waiting for more items.
 
     let selected_items = Skim::run_with(&options, Some(rx_item))
+        .filter(|out| !out.is_abort)
         .map(|out| out.selected_items)
         .unwrap_or_else(Vec::new);
 
-    let selected_build_type = selected_items.first().map(|v| v.text().to_string()).context("No env selected")?;
+    let selected_build_type: &BuildType = selected_items.first()
+        .and_then(|v| (**v).as_any().downcast_ref())
+        .context("No env selected")?;
 
     let body = DeployBody {
         branch_name: build.branch_name,
         build_type: BuildTypeBody {
-            id: selected_build_type,
+            id: selected_build_type.id.clone(),
         },
         snapshot_dependencies: DeployBuilds {
             build: vec![

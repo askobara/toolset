@@ -183,7 +183,7 @@ pub struct Build {
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct Builds {
+pub struct Builds {
     count: i32,
     href: String,
     next_href: Option<String>,
@@ -262,6 +262,8 @@ async fn main() -> Result<()> {
             Commands::RunBuild { branch_name, workdir } => {
                 let build = crate::build::run_build(&client, workdir.as_deref(), branch_name.as_deref()).await?;
 
+                println!("{}", build.web_url);
+
                 let mut clipboard = Clipboard::new()?;
                 if clipboard.set_text(build.web_url).is_ok() {
                     // FIXME: x11 will clear the clipboard when program is exit
@@ -270,54 +272,13 @@ async fn main() -> Result<()> {
             },
 
             Commands::ListBuilds { workdir, branch_name, build_type, author, limit } => {
-                let path = normalize_path(workdir.as_deref());
-                let branch = normalize_branch_name(branch_name.as_deref(), &path);
-                let btype = normalize_build_type(build_type.as_deref(), &path);
-
-                let mut locator: Vec<String> = vec![
-                    format!("defaultFilter:false"),
-                    format!("personal:false"),
-                    format!("count:{}", limit.unwrap_or(5))
-                ];
-
-                if branch != "any" {
-                    locator.push(format!("branch:{branch}"));
-                } else {
-                    locator.push("branch:default:any".to_string());
-                }
-
-                if btype == "build" || btype == "b" {
-                    locator.push("buildType:(type:regular,name:Build)".to_string());
-                } else if btype == "deploy" || btype == "d" {
-                    locator.push("buildType:(type:deployment)".to_string());
-                } else if btype != "any" {
-                    locator.push(format!("buildType:{btype}"));
-                }
-
-                if let Some(author) = author {
-                    locator.push(format!("user:{author}"));
-                }
-
-                let url = format!(
-                    "{host}/app/rest/builds?locator={locator}",
-                    host = CONFIG.teamcity.host,
-                    locator = locator.join(",")
-                );
-
-                info!("{}", &url);
-
-                let response = client.get(url)
-                    .send()
-                    .await?
-                    .json::<Builds>()
-                    .await?
-                ;
+                let builds = crate::build::get_builds(&client, workdir.as_deref(), branch_name.as_deref(), build_type.as_deref(), author.as_deref(), limit).await?;
 
                 let mut table = Table::new();
                 table.set_format(*TABLE_FORMAT);
 
                 table.set_titles(row!["", "date", "build type", "build id", "url (branch)"]);
-                for b in response.build {
+                for b in builds.build {
                     table.add_row(row![
                         match b.status.as_deref().unwrap_or("UNKNOWN") {
                             "SUCCESS" => format!("{}", style("✓").green().bold()),
@@ -364,7 +325,6 @@ async fn main() -> Result<()> {
                     fields = fields,
                 );
 
-                println!("{:?}", &url);
                 let response = client.get(url)
                     .send()
                     .await?

@@ -1,7 +1,7 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use crate::normalize::*;
-use crate::{BuildQueue, CONFIG};
+use crate::{BuildQueue, Builds, CONFIG};
 
 #[derive(Debug, Serialize, Deserialize)]
 struct BuildTypeBody {
@@ -32,9 +32,54 @@ pub async fn run_build(client: &reqwest::Client, workdir: Option<&str>, branch_n
         .send()
         .await?
         .json::<BuildQueue>()
-    .await?;
+        .await?;
 
-    println!("{}", response.web_url);
+    Ok(response)
+}
+
+pub async fn get_builds(client: &reqwest::Client, workdir: Option<&str>, branch_name: Option<&str>, build_type: Option<&str>, author: Option<&str>, limit: Option<u8>) -> Result<Builds> {
+    let path = normalize_path(workdir);
+    let branch = normalize_branch_name(branch_name, &path);
+    let btype = normalize_build_type(build_type, &path);
+
+    let mut locator: Vec<String> = vec![
+        format!("defaultFilter:false"),
+        format!("personal:false"),
+        format!("count:{}", limit.unwrap_or(5))
+    ];
+
+    if branch != "any" {
+        locator.push(format!("branch:{branch}"));
+    } else {
+        locator.push("branch:default:any".to_string());
+    }
+
+    if btype == "build" || btype == "b" {
+        locator.push("buildType:(type:regular,name:Build)".to_string());
+    } else if btype == "deploy" || btype == "d" {
+        locator.push("buildType:(type:deployment)".to_string());
+    } else if btype != "any" {
+        locator.push(format!("buildType:{btype}"));
+    }
+
+    if let Some(author) = author {
+        locator.push(format!("user:{author}"));
+    }
+
+    let url = format!(
+        "{host}/app/rest/builds?locator={locator}",
+        host = CONFIG.teamcity.host,
+        locator = locator.join(",")
+    );
+
+    info!("{}", &url);
+
+    let response = client.get(url)
+        .send()
+        .await?
+        .json::<Builds>()
+        .await?
+    ;
 
     Ok(response)
 }
