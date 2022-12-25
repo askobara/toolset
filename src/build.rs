@@ -2,6 +2,7 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use crate::normalize::*;
 use crate::{BuildQueue, Builds, CONFIG};
+use tracing::info;
 
 #[derive(Debug, Serialize, Deserialize)]
 struct BuildTypeBody {
@@ -27,12 +28,14 @@ pub async fn run_build(client: &reqwest::Client, workdir: Option<&str>, branch_n
         branch_name: branch.clone(),
     };
 
-    let response = client.post(format!("{}/app/rest/buildQueue", CONFIG.teamcity.host))
+    let response: BuildQueue = client.post(format!("{}/app/rest/buildQueue", CONFIG.teamcity.host))
         .json(&body)
         .send()
         .await?
-        .json::<BuildQueue>()
-        .await?;
+        .error_for_status()?
+        .json()
+        .await?
+    ;
 
     Ok(response)
 }
@@ -74,10 +77,11 @@ pub async fn get_builds(client: &reqwest::Client, workdir: Option<&str>, branch_
 
     info!("{}", &url);
 
-    let response = client.get(url)
+    let response: Builds = client.get(url)
         .send()
         .await?
-        .json::<Builds>()
+        .error_for_status()?
+        .json()
         .await?
     ;
 

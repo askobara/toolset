@@ -205,11 +205,12 @@ pub async fn run_deploy(
         }
     };
 
-    let response = client.post(format!("{host}/app/rest/buildQueue", host = CONFIG.teamcity.host))
+    let response: BuildQueue = client.post(format!("{host}/app/rest/buildQueue", host = CONFIG.teamcity.host))
         .json(&body)
         .send()
         .await?
-        .json::<BuildQueue>()
+        .error_for_status()?
+        .json()
         .await?
     ;
 

@@ -3,11 +3,7 @@
 extern crate skim;
 extern crate xdg;
 
-#[macro_use] extern crate log;
-extern crate simplelog;
-
 use anyhow::Result;
-use simplelog::TermLogger;
 
 use arboard::Clipboard;
 use chrono::prelude::*;
@@ -240,12 +236,7 @@ fn format_datetime(datetime: &chrono::DateTime<chrono::FixedOffset>) -> String {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    TermLogger::init(
-        simplelog::LevelFilter::Info,
-        simplelog::Config::default(),
-        simplelog::TerminalMode::Stdout,
-        simplelog::ColorChoice::Auto,
-    )?;
+    tracing_subscriber::fmt::init();
 
     let cli = Cli::parse();
 
@@ -325,10 +316,11 @@ async fn main() -> Result<()> {
                     fields = fields,
                 );
 
-                let response = client.get(url)
+                let response: BuildTypes = client.get(url)
                     .send()
                     .await?
-                    .json::<BuildTypes>()
+                    .error_for_status()?
+                    .json()
                     .await?
                 ;
 
@@ -337,7 +329,8 @@ async fn main() -> Result<()> {
                     .multi(true)
                     .preview(Some(""))
                     .build()
-                    .unwrap();
+                    .unwrap()
+                ;
 
                 let (tx_item, rx_item): (SkimItemSender, SkimItemReceiver) = unbounded();
 
@@ -347,6 +340,7 @@ async fn main() -> Result<()> {
                 drop(tx_item); // so that skim could know when to stop waiting for more items.
 
                 let selected_items = Skim::run_with(&options, Some(rx_item))
+                    .filter(|out| !out.is_abort)
                     .map(|out| out.selected_items)
                     .unwrap_or_else(Vec::new);
 
