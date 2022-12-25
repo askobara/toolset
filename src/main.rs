@@ -51,6 +51,36 @@ struct Cli {
     command: Option<Commands>,
 }
 
+#[derive(Debug, Clone)]
+pub enum ArgBuildType {
+    Build,
+    Deploy,
+    Any,
+    Custom(String),
+}
+
+impl std::convert::From<&str> for ArgBuildType {
+    fn from(s: &str) -> Self {
+        match s.to_ascii_lowercase().as_str() {
+            "build"|"b" => ArgBuildType::Build,
+            "deploy"|"d" => ArgBuildType::Deploy,
+            "any" => ArgBuildType::Any,
+            custom @ _ => ArgBuildType::Custom(custom.to_string()),
+        }
+    }
+}
+
+impl std::convert::From<ArgBuildType> for String {
+    fn from(v: ArgBuildType) -> Self {
+        match v {
+            ArgBuildType::Build => "build".into(),
+            ArgBuildType::Deploy => "deploy".into(),
+            ArgBuildType::Any => "any".into(),
+            ArgBuildType::Custom(custom) => custom,
+        }
+    }
+}
+
 #[derive(Debug, Subcommand)]
 enum Commands {
 
@@ -84,7 +114,7 @@ enum Commands {
         /// use "any" as a value to disable filter, a build type associated with workdir is
         /// using by default. Values "build", "b", "deploy" and "d" also will work.
         #[arg(long)]
-        build_type: Option<String>,
+        build_type: Option<ArgBuildType>,
         /// use "any" as a value to disable filter, an user associated with current token is using by
         /// default.
         #[arg(long)]
@@ -101,12 +131,6 @@ enum Commands {
     Init {
     },
 }
-
-// enum BuildTypeType {
-//     Regular = "regular",
-//     Deployment = "deployment",
-//     Composite = "composite",
-// }
 
 #[derive(Debug, Serialize, Deserialize, FieldNamesAsArray)]
 #[serde(rename_all = "camelCase")]
@@ -263,7 +287,7 @@ async fn main() -> Result<()> {
             },
 
             Commands::ListBuilds { workdir, branch_name, build_type, author, limit } => {
-                let builds = crate::build::get_builds(&client, workdir.as_deref(), branch_name.as_deref(), build_type.as_deref(), author.as_deref(), limit).await?;
+                let builds = crate::build::get_builds(&client, workdir.as_deref(), branch_name.as_deref(), build_type, author.as_deref(), limit).await?;
 
                 let mut table = Table::new();
                 table.set_format(*TABLE_FORMAT);
@@ -347,16 +371,6 @@ async fn main() -> Result<()> {
                 for item in selected_items.iter() {
                     println!("{}", item.output());
                 }
-
-
-                // let mut table = Table::new();
-                // table.set_format(*TABLE_FORMAT);
-                //
-                // table.set_titles(row!["id", "name", "type"]);
-                // for bt in response.build_type {
-                //     table.add_row(row![bt.id, bt.name, bt.r#type.unwrap_or("None".to_string())]);
-                // }
-                // table.printstd();
             },
 
             Commands::RunDeploy { build_id, env, workdir, build_type } => {

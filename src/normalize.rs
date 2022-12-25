@@ -18,8 +18,8 @@ pub fn normalize_branch_name(branch_name: Option<&str>, path: &Path) -> String {
     })
 }
 
-pub fn normalize_build_type(build_type: Option<&str>, path: &Path) -> String {
-    build_type.map(|s| s.to_string()).unwrap_or_else(|| {
+pub fn normalize_build_type(build_type: Option<impl Into<String>>, path: &Path) -> String {
+    build_type.map(|s| s.into()).unwrap_or_else(|| {
         get_build_type_by_path(path)
     })
 }

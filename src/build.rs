@@ -1,7 +1,7 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use crate::normalize::*;
-use crate::{BuildQueue, Builds, CONFIG};
+use crate::{BuildQueue, Builds, ArgBuildType, CONFIG};
 use tracing::info;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -40,7 +40,7 @@ pub async fn run_build(client: &reqwest::Client, workdir: Option<&str>, branch_n
     Ok(response)
 }
 
-pub async fn get_builds(client: &reqwest::Client, workdir: Option<&str>, branch_name: Option<&str>, build_type: Option<&str>, author: Option<&str>, limit: Option<u8>) -> Result<Builds> {
+pub async fn get_builds(client: &reqwest::Client, workdir: Option<&str>, branch_name: Option<&str>, build_type: Option<ArgBuildType>, author: Option<&str>, limit: Option<u8>) -> Result<Builds> {
     let path = normalize_path(workdir);
     let branch = normalize_branch_name(branch_name, &path);
     let btype = normalize_build_type(build_type, &path);
@@ -57,9 +57,9 @@ pub async fn get_builds(client: &reqwest::Client, workdir: Option<&str>, branch_
         locator.push("branch:default:any".to_string());
     }
 
-    if btype == "build" || btype == "b" {
+    if btype == "build" {
         locator.push("buildType:(type:regular,name:Build)".to_string());
-    } else if btype == "deploy" || btype == "d" {
+    } else if btype == "deploy" {
         locator.push("buildType:(type:deployment)".to_string());
     } else if btype != "any" {
         locator.push(format!("buildType:{btype}"));
