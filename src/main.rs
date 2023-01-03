@@ -83,13 +83,12 @@ impl std::convert::From<ArgBuildType> for String {
 
 #[derive(Debug, Subcommand)]
 enum Commands {
-
     #[command()]
     RunBuild {
         #[arg(short, long)]
         branch_name: Option<String>,
         #[arg(short, long)]
-        workdir: Option<String>,
+        workdir: Option<std::path::PathBuf>,
     },
 
     #[command()]
@@ -99,7 +98,7 @@ enum Commands {
         #[arg(short, long)]
         env: Option<String>,
         #[arg(long)]
-        workdir: Option<String>,
+        workdir: Option<std::path::PathBuf>,
         #[arg(long)]
         build_type: Option<String>,
     },
@@ -107,7 +106,7 @@ enum Commands {
     #[command()]
     ListBuilds {
         #[arg(long)]
-        workdir: Option<String>,
+        workdir: Option<std::path::PathBuf>,
         /// use "any" as a value to disable filter, current branch name is using by default.
         #[arg(long)]
         branch_name: Option<String>,
@@ -287,7 +286,7 @@ async fn main() -> Result<()> {
             },
 
             Commands::ListBuilds { workdir, branch_name, build_type, author, limit } => {
-                let builds = crate::build::get_builds(&client, workdir.as_deref(), branch_name.as_deref(), build_type, author.as_deref(), limit).await?;
+                let builds = crate::build::get_builds(&client, workdir.as_deref(), branch_name.as_deref(), build_type.as_ref(), author.as_deref(), limit).await?;
 
                 let mut table = Table::new();
                 table.set_format(*TABLE_FORMAT);

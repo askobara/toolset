@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Result, Context};
 use serde::{Deserialize, Serialize};
 use crate::normalize::*;
 use crate::{BuildQueue, Builds, ArgBuildType, CONFIG};
@@ -16,14 +16,14 @@ struct BuildBody {
     build_type: BuildTypeBody,
 }
 
-pub async fn run_build(client: &reqwest::Client, workdir: Option<&str>, branch_name: Option<&str>) -> Result<BuildQueue> {
-    let path = normalize_path(workdir);
-    let branch = normalize_branch_name(branch_name, &path);
-    let build_type = get_build_type_by_path(&path);
+pub async fn run_build(client: &reqwest::Client, workdir: Option<&std::path::Path>, branch_name: Option<&str>) -> Result<BuildQueue> {
+    let path = normalize_path(workdir)?;
+    let branch = normalize_branch_name(branch_name, workdir)?;
+    let build_type = get_build_type_by_path(&path).context("Current path doesn't have association with BuildType through config (or contains non-utf8 symbols)")?;
 
     let body = BuildBody {
         build_type: BuildTypeBody {
-            id: build_type.clone(),
+            id: build_type.into(),
         },
         branch_name: branch.clone(),
     };
@@ -40,10 +40,16 @@ pub async fn run_build(client: &reqwest::Client, workdir: Option<&str>, branch_n
     Ok(response)
 }
 
-pub async fn get_builds(client: &reqwest::Client, workdir: Option<&str>, branch_name: Option<&str>, build_type: Option<ArgBuildType>, author: Option<&str>, limit: Option<u8>) -> Result<Builds> {
-    let path = normalize_path(workdir);
-    let branch = normalize_branch_name(branch_name, &path);
-    let btype = normalize_build_type(build_type, &path);
+pub async fn get_builds(
+    client: &reqwest::Client,
+    workdir: Option<&std::path::Path>,
+    branch_name: Option<&str>,
+    build_type: Option<&ArgBuildType>,
+    author: Option<&str>,
+    limit: Option<u8>
+) -> Result<Builds> {
+    let path = normalize_path(workdir)?;
+    let branch = normalize_branch_name(branch_name, workdir)?;
 
     let mut locator: Vec<String> = vec![
         format!("defaultFilter:false"),
@@ -57,13 +63,12 @@ pub async fn get_builds(client: &reqwest::Client, workdir: Option<&str>, branch_
         locator.push("branch:default:any".to_string());
     }
 
-    if btype == "build" {
-        locator.push("buildType:(type:regular,name:Build)".to_string());
-    } else if btype == "deploy" {
-        locator.push("buildType:(type:deployment)".to_string());
-    } else if btype != "any" {
-        locator.push(format!("buildType:{btype}"));
-    }
+    match build_type.cloned().or_else(|| get_build_type_by_path(&path).map(|p| ArgBuildType::from(p.as_str()))).unwrap() {
+        ArgBuildType::Build => locator.push("buildType:(type:regular,name:Build)".to_string()),
+        ArgBuildType::Deploy => locator.push("buildType:(type:deployment)".to_string()),
+        ArgBuildType::Custom(custom) => locator.push(format!("buildType:{custom}")),
+        _ => {},
+    };
 
     if let Some(author) = author {
         locator.push(format!("user:{author}"));

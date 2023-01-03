@@ -145,8 +145,8 @@ pub async fn run_deploy(
     client: &reqwest::Client,
     build_id: Option<&str>,
     env: Option<&str>,
-    workdir: Option<&str>,
-    build_type: Option<&str>
+    workdir: Option<&std::path::Path>,
+    _build_type: Option<&str>
 ) -> Result<BuildQueue> {
     // TODO: deploy the last master build, when build_id is "master"
 
@@ -156,10 +156,10 @@ pub async fn run_deploy(
     if id.is_some() {
         locator.id(id);
     } else {
-        let path = normalize_path(workdir);
-        let btype = normalize_build_type(build_type, &path);
+        let path = normalize_path(workdir)?;
+        let btype = get_build_type_by_path(&path).context("Current path doesn't have association with BuildType through config (or contains non-utf8 symbols)")?;
 
-        locator.build_type(Some(btype).as_deref());
+        locator.build_type(Some(&btype));
         locator.user(Some("current"));
     }
 
