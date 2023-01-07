@@ -1,7 +1,6 @@
 #[macro_use] extern crate lazy_static;
 #[macro_use] extern crate prettytable;
 extern crate skim;
-extern crate xdg;
 
 use anyhow::Result;
 
@@ -27,9 +26,7 @@ use crate::normalize::*;
 use crate::settings::*;
 
 lazy_static! {
-    pub static ref CONFIG: Settings = {
-        Settings::new().unwrap()
-    };
+    pub static ref CONFIG: Settings = Settings::new().unwrap();
 
     static ref TABLE_FORMAT: TableFormat = FormatBuilder::new()
         .column_separator(' ')
@@ -99,8 +96,6 @@ enum Commands {
         env: Option<String>,
         #[arg(long)]
         workdir: Option<std::path::PathBuf>,
-        #[arg(long)]
-        build_type: Option<String>,
     },
 
     #[command()]
@@ -372,8 +367,8 @@ async fn main() -> Result<()> {
                 }
             },
 
-            Commands::RunDeploy { build_id, env, workdir, build_type } => {
-                let response = crate::deploy::run_deploy(&client, build_id.as_deref(), env.as_deref(), workdir.as_deref(), build_type.as_deref()).await?;
+            Commands::RunDeploy { build_id, env, workdir } => {
+                let response = crate::deploy::run_deploy(&client, build_id.as_deref(), env.as_deref(), workdir.as_deref()).await?;
 
                 println!("{}", response.web_url);
             },

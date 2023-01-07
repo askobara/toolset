@@ -5,6 +5,7 @@ use std::fmt;
 use skim::prelude::*;
 use crate::normalize::*;
 use crate::{BuildType, BuildQueue, CONFIG};
+use tracing::info;
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -145,8 +146,7 @@ pub async fn run_deploy(
     client: &reqwest::Client,
     build_id: Option<&str>,
     env: Option<&str>,
-    workdir: Option<&std::path::Path>,
-    _build_type: Option<&str>
+    workdir: Option<&std::path::Path>
 ) -> Result<BuildQueue> {
     // TODO: deploy the last master build, when build_id is "master"
 
@@ -164,6 +164,8 @@ pub async fn run_deploy(
     }
 
     let build = get_build(client, &locator).await?;
+
+    info!("#{} {} {}", build.id, build.build_type_id, build.number);
 
     let options = SkimOptionsBuilder::default()
         .prompt(Some("Select an environment where to deploy: "))

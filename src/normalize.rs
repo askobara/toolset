@@ -31,6 +31,6 @@ pub fn normalize_field_names(fields: &[&str]) -> String {
 pub fn get_build_type_by_path(path: &Path) -> Option<String> {
     path.file_name()
         .and_then(|s| s.to_str())
-        .and_then(|name| CONFIG.build_types.get(name).cloned())
+        .and_then(|name| CONFIG.teamcity.build_types.get(name).cloned())
 }
 
