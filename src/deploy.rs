@@ -3,8 +3,8 @@ use serde::{Deserialize, Serialize};
 use anyhow::{Result, Context, bail};
 use std::fmt;
 use skim::prelude::*;
-use crate::normalize::*;
-use crate::{BuildType, BuildQueue, CONFIG};
+use crate::{BuildType, BuildQueue};
+use crate::client::Client;
 use tracing::info;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -126,95 +126,97 @@ impl fmt::Display for BuildLocator {
     }
 }
 
-async fn get_build(client: &reqwest::Client, locator: &BuildLocator) -> Result<Build> {
-    let url = format!(
-        "{host}/app/rest/builds/{locator}?fields=id,buildTypeId,branchName,number,state,status,buildType:(id,name,project:(id,name,projects:(count,project:(id,name,buildTypes:(count,buildType)))))",
-        host = CONFIG.teamcity.host,
-        locator = locator,
-    );
+impl<'a> Client<'a> {
+    async fn get_last_build(&self, locator: &BuildLocator) -> Result<Build> {
+        let url = format!(
+            "{host}/app/rest/builds/{locator}?fields=id,buildTypeId,branchName,number,state,status,buildType:(id,name,project:(id,name,projects:(count,project:(id,name,buildTypes:(count,buildType)))))",
+            host = self.get_host(),
+            locator = locator,
+        );
 
-    let build = client.get(url).send().await?.json::<Build>().await?;
+        let build = self.http_client.get(url).send().await?.json::<Build>().await?;
 
-    match (build.state.as_str(), build.status.as_deref()) {
-        (_, Some("FAILURE")) => bail!("Build #{id} is failed", id = build.id),
-        ("queued", _) => bail!("Build #{id} is queued", id = build.id),
-        (_, _) => Ok(build),
-    }
-}
-
-pub async fn run_deploy(
-    client: &reqwest::Client,
-    build_id: Option<&str>,
-    env: Option<&str>,
-    workdir: Option<&std::path::Path>
-) -> Result<BuildQueue> {
-    // TODO: deploy the last master build, when build_id is "master"
-
-    let mut locator = BuildLocator::default();
-    let id: Option<i32> = build_id.and_then(|v| v.parse().ok());
-
-    if id.is_some() {
-        locator.id(id);
-    } else {
-        let path = normalize_path(workdir)?;
-        let btype = get_build_type_by_path(&path).context("Current path doesn't have association with BuildType through config (or contains non-utf8 symbols)")?;
-
-        locator.build_type(Some(&btype));
-        locator.user(Some("current"));
-    }
-
-    let build = get_build(client, &locator).await?;
-
-    info!("#{} {} {}", build.id, build.build_type_id, build.number);
-
-    let options = SkimOptionsBuilder::default()
-        .prompt(Some("Select an environment where to deploy: "))
-        .height(Some("30%"))
-        .preview(Some(""))
-        .preview_window(Some("right:70%"))
-        .query(env)
-        .select1(env.is_some())
-        .build()
-        .unwrap();
-
-    let (tx_item, rx_item): (SkimItemSender, SkimItemReceiver) = unbounded();
-
-    build.build_type.project.projects.project.into_iter().for_each(|prj| {
-        prj.build_types.build_type.into_iter().for_each(|bt| {
-            let _ = tx_item.send(Arc::new(bt));
-        });
-    });
-    drop(tx_item); // so that skim could know when to stop waiting for more items.
-
-    let selected_items = Skim::run_with(&options, Some(rx_item))
-        .filter(|out| !out.is_abort)
-        .map(|out| out.selected_items)
-        .unwrap_or_else(Vec::new);
-
-    let selected_build_type: &BuildType = selected_items.first()
-        .and_then(|v| (**v).as_any().downcast_ref())
-        .context("No env selected")?;
-
-    let body = DeployBody {
-        branch_name: build.branch_name,
-        build_type: BuildTypeBody {
-            id: selected_build_type.id.clone(),
-        },
-        snapshot_dependencies: DeployBuilds {
-            build: vec![
-                DeployBuild { id: build.id }
-            ]
+        match (build.state.as_str(), build.status.as_deref()) {
+            (_, Some("FAILURE")) => bail!("Build #{id} is failed", id = build.id),
+            ("queued", _) => bail!("Build #{id} is queued", id = build.id),
+            (_, _) => Ok(build),
         }
-    };
+    }
 
-    let response: BuildQueue = client.post(format!("{host}/app/rest/buildQueue", host = CONFIG.teamcity.host))
-        .json(&body)
-        .send()
-        .await?
-        .error_for_status()?
-        .json()
-        .await?
-    ;
+    pub async fn run_deploy(
+        &self,
+        build_id: Option<&str>,
+        env: Option<&str>
+    ) -> Result<BuildQueue> {
+        // TODO: deploy the last master build, when build_id is "master"
 
-    Ok(response)
+        let mut locator = BuildLocator::default();
+        let id: Option<i32> = build_id.and_then(|v| v.parse().ok());
+
+        if id.is_some() {
+            locator.id(id);
+        } else {
+            let btype = self.get_build_type_by_path().context("Current path doesn't have association with BuildType through config (or contains non-utf8 symbols)")?;
+
+            locator.build_type(Some(&btype));
+            locator.user(Some("current"));
+        }
+
+        let build = self.get_last_build(&locator).await?;
+
+        info!("#{} {} {}", build.id, build.build_type_id, build.number);
+
+        let options = SkimOptionsBuilder::default()
+            .prompt(Some("Select an environment where to deploy: "))
+            .height(Some("30%"))
+            .preview(Some(""))
+            .preview_window(Some("right:70%"))
+            .query(env)
+            .select1(env.is_some())
+            .build()
+            .unwrap();
+
+        let (tx_item, rx_item): (SkimItemSender, SkimItemReceiver) = unbounded();
+
+        build.build_type.project.projects.project.into_iter().for_each(|prj| {
+            prj.build_types.build_type.into_iter().for_each(|bt| {
+                let _ = tx_item.send(Arc::new(bt));
+            });
+        });
+        drop(tx_item); // so that skim could know when to stop waiting for more items.
+
+        let selected_items = Skim::run_with(&options, Some(rx_item))
+            .filter(|out| !out.is_abort)
+            .map(|out| out.selected_items)
+            .unwrap_or_else(Vec::new);
+
+        let selected_build_type: &BuildType = selected_items.first()
+            .and_then(|v| (**v).as_any().downcast_ref())
+            .context("No env selected")?;
+
+        let body = DeployBody {
+            branch_name: build.branch_name,
+            build_type: BuildTypeBody {
+                id: selected_build_type.id.clone(),
+            },
+            snapshot_dependencies: DeployBuilds {
+                build: vec![
+                    DeployBuild { id: build.id }
+                ]
+            }
+        };
+
+        let url = format!("{host}/app/rest/buildQueue", host = self.get_host());
+
+        let response: BuildQueue = self.http_client.post(url)
+            .json(&body)
+            .send()
+            .await?
+            .error_for_status()?
+            .json()
+            .await?
+        ;
+
+        Ok(response)
+    }
 }

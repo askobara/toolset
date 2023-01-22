@@ -1,6 +1,5 @@
 use std::path::{Path, PathBuf};
 use anyhow::{Result, Context};
-use crate::CONFIG;
 
 pub fn normalize_path(path: Option<&Path>) -> std::io::Result<PathBuf> {
     match path {
@@ -27,10 +26,3 @@ pub fn normalize_field_names(fields: &[&str]) -> String {
         .map(|s| s.replace("r#", "")).collect::<Vec<String>>()
         .join(",")
 }
-
-pub fn get_build_type_by_path(path: &Path) -> Option<String> {
-    path.file_name()
-        .and_then(|s| s.to_str())
-        .and_then(|name| CONFIG.teamcity.build_types.get(name).cloned())
-}
-

@@ -1,38 +1,50 @@
-use serde::Deserialize;
-use config::Config;
+use serde::{Serialize, Deserialize};
 use std::collections::HashMap;
 use directories::ProjectDirs;
-use std::fs;
+use std::fs::File;
 use anyhow::{Result, Context};
+use std::path::PathBuf;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct TeamcitySettings {
     pub host: String,
     pub auth_token: String,
     pub build_types: HashMap<String, String>,
 }
 
-#[derive(Debug, Deserialize)]
+impl Default for TeamcitySettings {
+    fn default() -> Self {
+        Self {
+            host: "".to_string(),
+            auth_token: "".to_string(),
+            build_types: HashMap::new(),
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Settings {
+    #[serde(default)]
     pub teamcity: TeamcitySettings,
 }
 
 impl Settings {
     pub fn new() -> Result<Self> {
-        let config_path = ProjectDirs::from("", "", "teamcity").context("Couldn't retrive valid config folder")
-            .and_then(|prj_dir| Ok(prj_dir.config_dir().join("config.toml")))?;
+        Self::config_path()
+            .and_then(|path| File::open(path).map_err(anyhow::Error::new))
+            .and_then(|file| serde_yaml::from_reader(file).map_err(anyhow::Error::new))
+    }
+
+    pub fn config_path() -> Result<PathBuf> {
+        let config_path = ProjectDirs::from("", "", "teamcity")
+            .context("Couldn't retrive project dirs")
+            .map(|prj_dirs| prj_dirs.config_dir().join("config.yaml"))?
+        ;
 
         if !config_path.exists() {
-            fs::File::create(&config_path).expect("unable to create config file");
+            File::create(&config_path)?;
         }
 
-        let settings = Config::builder()
-            .add_source(config::File::with_name(config_path.to_str().context("Config path contains non-utf8 symbols")?))
-            // Add in settings from the environment (with a prefix of APP)
-            // Eg.. `APP_DEBUG=1 ./target/app` would set the `debug` key
-            .add_source(config::Environment::with_prefix("APP"))
-            .build()?;
-
-        settings.try_deserialize().map_err(anyhow::Error::new)
+        Ok(config_path)
     }
 }
