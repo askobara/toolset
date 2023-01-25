@@ -93,6 +93,15 @@ impl IntoIterator for Builds {
     }
 }
 
+impl<'a> IntoIterator for &'a Builds {
+    type Item = &'a Build;
+    type IntoIter = std::slice::Iter<'a, Build>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.build.iter()
+    }
+}
+
 impl<'a> Client<'a> {
     pub async fn run_build(&self, build_type: Option<&str>, branch_name: Option<&str>) -> Result<BuildQueue> {
         let build_type = build_type.map(|s| s.to_string()).or_else(|| self.get_build_type_by_path().ok()).unwrap();
@@ -145,11 +154,18 @@ impl<'a> Client<'a> {
         match build_type.cloned().or_else(|| self.get_build_type_by_path().ok().map(|p| ArgBuildType::from(p.as_str()))).unwrap() {
             ArgBuildType::Build => locator.push("buildType:(type:regular,name:Build)".to_string()),
             ArgBuildType::Deploy => locator.push("buildType:(type:deployment)".to_string()),
-            ArgBuildType::Custom(custom) => locator.push(format!("buildType:{custom}")),
+            ArgBuildType::Custom(custom) => {
+                let bt_list = self.build_type_list().await?;
+                let bt = select(&bt_list.build_type, Some(&custom))?;
+                locator.push(format!("buildType:{name}", name = bt.id))
+            },
             _ => {},
         };
 
         if let Some(author) = author {
+            // let user_list = self.user_list().await?;
+            // let user = select(&user_list.user, Some(&author))?;
+            // locator.push(format!("user:{name}", name = user.username));
             locator.push(format!("user:{author}"));
         }
 

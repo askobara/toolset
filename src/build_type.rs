@@ -1,10 +1,36 @@
-use anyhow::{Result, Context};
-use crate::BuildType;
+use anyhow::Result;
 use crate::normalize::*;
 use skim::prelude::*;
 use crate::client::Client;
 use serde::{Deserialize, Serialize};
+use std::convert::AsRef;
 use struct_field_names_as_array::FieldNamesAsArray;
+
+#[derive(Debug, Serialize, Deserialize, FieldNamesAsArray, Clone)]
+#[serde(rename_all = "camelCase")]
+#[field_names_as_array(rename_all = "camelCase")]
+pub struct BuildType {
+    pub(crate) id: String,
+    name: String,
+    web_url: String,
+    r#type: Option<String>,
+}
+
+impl AsRef<str> for &BuildType {
+    fn as_ref(&self) -> &str {
+        self.id.as_str()
+    }
+}
+
+impl SkimItem for BuildType {
+    fn text(&self) -> Cow<str> {
+        Cow::Borrowed(&self.id)
+    }
+
+    fn preview(&self, _context: PreviewContext) -> ItemPreview {
+        ItemPreview::Text(format!("{:#?}", self))
+    }
+}
 
 #[derive(Debug, Serialize, Deserialize, FieldNamesAsArray)]
 #[serde(rename_all = "camelCase")]
@@ -14,7 +40,7 @@ pub struct BuildTypes {
     href: String,
     next_href: Option<String>,
     prev_href: Option<String>,
-    build_type: Vec<BuildType>,
+    pub(crate) build_type: Vec<BuildType>,
 }
 
 impl<'a> Client<'a> {
@@ -25,7 +51,8 @@ impl<'a> Client<'a> {
         );
 
         let url = format!(
-            "{host}/app/rest/buildTypes?locator=type:regular,name:Build&fields={fields}",
+            // ?locator=type:regular,name:Build&
+            "{host}/app/rest/buildTypes?fields={fields}",
             host = self.get_host(),
         );
 
@@ -38,33 +65,5 @@ impl<'a> Client<'a> {
         ;
 
         Ok(response)
-    }
-
-    fn select_build_type(data: &Vec<BuildType>, query: Option<&str>) -> Result<BuildType> {
-        let options = SkimOptionsBuilder::default()
-            .height(Some("20%"))
-            .query(query)
-            .select1(query.is_some())
-            .build()
-            .unwrap()
-        ;
-
-        let (tx_item, rx_item): (SkimItemSender, SkimItemReceiver) = unbounded();
-
-        data.iter().for_each(|bt| {
-            let _ = tx_item.send(Arc::new(bt.clone()));
-        });
-        drop(tx_item); // so that skim could know when to stop waiting for more items.
-
-        let selected_items = Skim::run_with(&options, Some(rx_item))
-            .filter(|out| !out.is_abort)
-            .map(|out| out.selected_items)
-            .unwrap_or_else(Vec::new);
-
-        let selected_build_type: &BuildType = selected_items.first()
-            .and_then(|v| (**v).as_any().downcast_ref())
-            .context("No env selected")?;
-
-        Ok(selected_build_type.to_owned())
     }
 }

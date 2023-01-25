@@ -3,7 +3,6 @@
 extern crate skim;
 
 use anyhow::Result;
-use std::convert::AsRef;
 
 use arboard::Clipboard;
 use clap_complete::{generate, Generator, Shell};
@@ -12,9 +11,7 @@ use console::style;
 use prettytable::format::{TableFormat, FormatBuilder, LinePosition, LineSeparator};
 use prettytable::Table;
 use serde::{Deserialize, Serialize};
-use skim::prelude::*;
 use std::io;
-use struct_field_names_as_array::FieldNamesAsArray;
 
 mod normalize;
 mod settings;
@@ -96,6 +93,10 @@ enum Commands {
 
     #[command()]
     ListBuilds {
+        #[arg(short, long)]
+        any: bool,
+        #[arg(long)]
+        my: bool,
         /// use "any" as a value to disable filter, current branch name is using by default.
         #[arg(long)]
         branch_name: Option<String>,
@@ -114,35 +115,6 @@ enum Commands {
     #[command()]
     Init {
     },
-}
-
-#[derive(Debug, Serialize, Deserialize, FieldNamesAsArray, Clone)]
-#[serde(rename_all = "camelCase")]
-#[field_names_as_array(rename_all = "camelCase")]
-pub struct BuildType {
-    id: String,
-    name: String,
-    project_name: String,
-    project_id: String,
-    href: String,
-    web_url: String,
-    r#type: Option<String>,
-}
-
-impl AsRef<str> for &BuildType {
-    fn as_ref(&self) -> &str {
-        self.id.as_str()
-    }
-}
-
-impl SkimItem for BuildType {
-    fn text(&self) -> Cow<str> {
-        Cow::Borrowed(&self.id)
-    }
-
-    fn preview(&self, _context: PreviewContext) -> ItemPreview {
-        ItemPreview::Text(format!("{:#?}", self))
-    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -171,7 +143,7 @@ pub struct BuildQueue {
     branch_name: Option<String>,
     href: String,
     web_url: String,
-    build_type: BuildType,
+    // build_type: BuildType,
     wait_reason: String,
     queued_date: String,
     triggered: Triggered,
@@ -202,7 +174,7 @@ async fn main() -> Result<()> {
             Commands::RunBuild { branch_name } => {
                 let build = client.run_build(None, branch_name.as_deref()).await?;
 
-                println!("{}", build.web_url);
+                println!("{}", style(&build.web_url).bold().blue());
 
                 let mut clipboard = Clipboard::new()?;
                 if clipboard.set_text(build.web_url).is_ok() {
@@ -211,16 +183,31 @@ async fn main() -> Result<()> {
                 }
             },
 
-            Commands::ListBuilds { branch_name, build_type, author, limit } => {
+            Commands::RunDeploy { build_id, env } => {
+                let response = client.run_deploy(build_id.as_deref(), env.as_deref()).await?;
+
+                println!("{}", response.web_url);
+            },
+
+            Commands::ListBuilds { any, my, mut branch_name, mut build_type, mut author, limit } => {
+                if any {
+                    branch_name.replace("any".into());
+                    build_type.replace("any".into());
+                }
+
+                if my {
+                    author.replace("current".into());
+                }
+
                 let builds = client.get_builds(branch_name.as_deref(), build_type.as_ref(), author.as_deref(), limit).await?;
 
                 let mut table = Table::new();
                 table.set_format(*TABLE_FORMAT);
 
                 table.set_titles(row!["", "date", "build type", "build id", "url (branch)"]);
-                for b in builds {
+                for build in &builds {
                     table.add_row(row![
-                        match b.status().unwrap_or("UNKNOWN") {
+                        match build.status().unwrap_or("UNKNOWN") {
                             "SUCCESS" => format!("{}", style("✓").green().bold()),
                             "FAILURE" => format!("{}", style("✗").red().bold()),
                             "UNKNOWN" => format!("{}", style("?").bold()),
@@ -228,21 +215,21 @@ async fn main() -> Result<()> {
                         },
                         format!(
                             "{} {}",
-                            match b.state() {
+                            match build.state() {
                                 "queued" => "祥queued",
                                 "running" => "痢running",
                                 "finished" => "",
                                 _ => "?"
                             },
-                            b.finished_at()
+                            build.finished_at()
                         ),
-                        b.build_type_id(),
-                        b.id,
-                        // style(format!("\x1b]8;;{url}\x1b\\{text}\x1b]8;;\x1b\\", url = b.web_url, text = b.number)),
+                        build.build_type_id(),
+                        build.id,
+                        // style(format!("\x1b]8;;{url}\x1b\\{text}\x1b]8;;\x1b\\", url = build.web_url, text = build.number)),
                         format!(
                             "{url}\n{branch}",
-                            url = style(b.web_url()).blue().underlined(),
-                            branch = b.branch_name().unwrap_or("master (default branch)"),
+                            url = style(build.web_url()).blue().underlined(),
+                            branch = build.branch_name().unwrap_or("master (default branch)"),
                         ),
                     ]);
                 }
@@ -250,14 +237,8 @@ async fn main() -> Result<()> {
                 table.printstd();
             },
 
-            Commands::RunDeploy { build_id, env } => {
-                let response = client.run_deploy(build_id.as_deref(), env.as_deref()).await?;
-
-                println!("{}", response.web_url);
-            },
-
             Commands::Init {} => {
-
+                unimplemented!()
             },
         }
 

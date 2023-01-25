@@ -3,7 +3,8 @@ use serde::{Deserialize, Serialize};
 use anyhow::{Result, Context, bail};
 use std::fmt;
 use skim::prelude::*;
-use crate::{BuildType, BuildQueue};
+use crate::BuildQueue;
+use crate::build_type::BuildType;
 use crate::client::Client;
 use tracing::info;
 
@@ -59,6 +60,17 @@ pub struct Build {
     status: Option<String>,
 }
 
+impl<'a> IntoIterator for Build {
+    type Item = BuildType;
+    type IntoIter = std::vec::IntoIter<Self::Item>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.build_type.project.projects.project.into_iter().flat_map(|prj| {
+            prj.build_types.build_type.into_iter()
+        }).collect::<Vec<BuildType>>().into_iter()
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct DeployBuild {
@@ -90,6 +102,7 @@ struct BuildLocator {
     id: Option<i32>,
     user: Option<String>,
     build_type: Option<String>,
+    count: Option<i32>,
 }
 
 impl BuildLocator {
@@ -103,6 +116,10 @@ impl BuildLocator {
 
     fn build_type(&mut self, value: Option<&str>) {
         self.build_type = value.map(ToOwned::to_owned);
+    }
+
+    fn count(&mut self, value: Option<i32>) {
+        self.count = value.clone();
     }
 }
 
@@ -120,6 +137,10 @@ impl fmt::Display for BuildLocator {
 
         if let Some(build_type) = &self.build_type {
             locators.push(format!("buildType:{}", build_type));
+        }
+
+        if let Some(count) = &self.count {
+            locators.push(format!("count:{}", count));
         }
 
         write!(f, "{}", locators.join(","))
