@@ -2,11 +2,11 @@ use serde::{Deserialize, Serialize};
 
 use anyhow::{Result, Context, bail};
 use std::fmt;
-use skim::prelude::*;
 use crate::BuildQueue;
 use crate::build_type::BuildType;
 use crate::client::Client;
 use tracing::info;
+use crate::normalize::select_one;
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -48,7 +48,7 @@ struct BuildTypeWithProject {
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Build {
+struct Build {
     id: i32,
     build_type_id: String,
     branch_name: Option<String>,
@@ -60,14 +60,11 @@ pub struct Build {
     status: Option<String>,
 }
 
-impl<'a> IntoIterator for Build {
-    type Item = BuildType;
-    type IntoIter = std::vec::IntoIter<Self::Item>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.build_type.project.projects.project.into_iter().flat_map(|prj| {
-            prj.build_types.build_type.into_iter()
-        }).collect::<Vec<BuildType>>().into_iter()
+impl Build {
+    fn build_types(&self) -> Vec<BuildType> {
+        self.build_type.project.projects.project.iter().flat_map(|prj| {
+            prj.build_types.build_type.iter().map(ToOwned::to_owned)
+        }).collect::<Vec<_>>()
     }
 }
 
@@ -84,15 +81,15 @@ struct DeployBuilds {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-struct BuildTypeBody {
-    id: String,
+struct BuildTypeBody<'a> {
+    id: &'a str,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct DeployBody {
-    branch_name: Option<String>,
-    build_type: BuildTypeBody,
+struct DeployBody<'a> {
+    branch_name: Option<&'a str>,
+    build_type: BuildTypeBody<'a>,
     #[serde(rename = "snapshot-dependencies")]
     snapshot_dependencies: DeployBuilds,
 }
@@ -155,7 +152,7 @@ impl<'a> Client<'a> {
             locator = locator,
         );
 
-        let build = self.http_client.get(url).send().await?.json::<Build>().await?;
+        let build: Build = self.http_client.get(url).send().await?.json().await?;
 
         match (build.state.as_str(), build.status.as_deref()) {
             (_, Some("FAILURE")) => bail!("Build #{id} is failed", id = build.id),
@@ -187,38 +184,12 @@ impl<'a> Client<'a> {
 
         info!("#{} {} {}", build.id, build.build_type_id, build.number);
 
-        let options = SkimOptionsBuilder::default()
-            .prompt(Some("Select an environment where to deploy: "))
-            .height(Some("30%"))
-            .preview(Some(""))
-            .preview_window(Some("right:70%"))
-            .query(env)
-            .select1(env.is_some())
-            .build()
-            .unwrap();
-
-        let (tx_item, rx_item): (SkimItemSender, SkimItemReceiver) = unbounded();
-
-        build.build_type.project.projects.project.into_iter().for_each(|prj| {
-            prj.build_types.build_type.into_iter().for_each(|bt| {
-                let _ = tx_item.send(Arc::new(bt));
-            });
-        });
-        drop(tx_item); // so that skim could know when to stop waiting for more items.
-
-        let selected_items = Skim::run_with(&options, Some(rx_item))
-            .filter(|out| !out.is_abort)
-            .map(|out| out.selected_items)
-            .unwrap_or_else(Vec::new);
-
-        let selected_build_type: &BuildType = selected_items.first()
-            .and_then(|v| (**v).as_any().downcast_ref())
-            .context("No env selected")?;
+        let selected_build_type = select_one(build.build_types(), env)?;
 
         let body = DeployBody {
-            branch_name: build.branch_name,
+            branch_name: build.branch_name.as_deref(),
             build_type: BuildTypeBody {
-                id: selected_build_type.id.clone(),
+                id: &selected_build_type.id,
             },
             snapshot_dependencies: DeployBuilds {
                 build: vec![

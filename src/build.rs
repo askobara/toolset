@@ -155,8 +155,9 @@ impl<'a> Client<'a> {
             ArgBuildType::Build => locator.push("buildType:(type:regular,name:Build)".to_string()),
             ArgBuildType::Deploy => locator.push("buildType:(type:deployment)".to_string()),
             ArgBuildType::Custom(custom) => {
-                let bt_list = self.build_type_list().await?;
-                let bt = select(&bt_list.build_type, Some(&custom))?;
+                let bt = self.build_type_list().await.and_then(|list| {
+                    select_one(list.build_type, Some(&custom))
+                })?;
                 locator.push(format!("buildType:{name}", name = bt.id))
             },
             _ => {},

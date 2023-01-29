@@ -28,7 +28,11 @@ pub fn normalize_field_names(fields: &[&str]) -> String {
         .join(",")
 }
 
-pub fn select<T: SkimItem + Clone>(data: &Vec<T>, query: Option<&str>) -> Result<T> {
+pub fn select_one<I, T>(data: I, query: Option<&str>) -> Result<T>
+where
+    T: SkimItem + Clone,
+    I: IntoIterator<Item = T>,
+{
     let options = SkimOptionsBuilder::default()
         .height(Some("20%"))
         .query(query)
@@ -39,8 +43,8 @@ pub fn select<T: SkimItem + Clone>(data: &Vec<T>, query: Option<&str>) -> Result
 
     let (tx_item, rx_item): (SkimItemSender, SkimItemReceiver) = unbounded();
 
-    for bt in data {
-        let _ = tx_item.send(Arc::new(bt.clone()));
+    for item in data {
+        let _ = tx_item.send(Arc::new(item));
     }
 
     drop(tx_item); // so that skim could know when to stop waiting for more items.
@@ -50,9 +54,9 @@ pub fn select<T: SkimItem + Clone>(data: &Vec<T>, query: Option<&str>) -> Result
         .map(|out| out.selected_items)
         .unwrap_or_else(Vec::new);
 
-    let selected_build_type: &T = selected_items.first()
+    let result: &T = selected_items.first()
         .and_then(|v| (**v).as_any().downcast_ref())
         .context("No env selected")?;
 
-    Ok(selected_build_type.to_owned())
+    Ok(result.to_owned())
 }
