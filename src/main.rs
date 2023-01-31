@@ -1,9 +1,9 @@
 #[macro_use] extern crate lazy_static;
 #[macro_use] extern crate prettytable;
+#[macro_use] extern crate derive_builder;
 extern crate skim;
 
 use anyhow::Result;
-
 use arboard::Clipboard;
 use clap_complete::{generate, Generator, Shell};
 use clap::{Parser, Command, CommandFactory, Subcommand};
@@ -19,6 +19,7 @@ mod client;
 mod build;
 mod deploy;
 mod build_type;
+mod build_locator;
 
 use crate::settings::*;
 
@@ -93,9 +94,11 @@ enum Commands {
 
     #[command()]
     ListBuilds {
-        #[arg(short, long)]
+        #[arg(short, long, conflicts_with_all=["branch_name", "build_type", "master"])]
         any: bool,
-        #[arg(long)]
+        #[arg(short, long, conflicts_with="branch_name")]
+        master: bool,
+        #[arg(long, conflicts_with="author")]
         my: bool,
         /// use "any" as a value to disable filter, current branch name is using by default.
         #[arg(long)]
@@ -189,10 +192,12 @@ async fn main() -> Result<()> {
                 println!("{}", response.web_url);
             },
 
-            Commands::ListBuilds { any, my, mut branch_name, mut build_type, mut author, limit } => {
+            Commands::ListBuilds { any, my, master, mut branch_name, mut build_type, mut author, limit } => {
                 if any {
                     branch_name.replace("any".into());
                     build_type.replace("any".into());
+                } else if master {
+                    branch_name.replace("master".into());
                 }
 
                 if my {

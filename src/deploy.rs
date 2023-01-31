@@ -1,12 +1,12 @@
 use serde::{Deserialize, Serialize};
 
 use anyhow::{Result, Context, bail};
-use std::fmt;
 use crate::BuildQueue;
 use crate::build_type::BuildType;
 use crate::client::Client;
 use tracing::info;
 use crate::normalize::select_one;
+use crate::build_locator::{BuildLocator, BuildLocatorBuilder};
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -94,58 +94,8 @@ struct DeployBody<'a> {
     snapshot_dependencies: DeployBuilds,
 }
 
-#[derive(Debug, Default)]
-struct BuildLocator {
-    id: Option<i32>,
-    user: Option<String>,
-    build_type: Option<String>,
-    count: Option<i32>,
-}
-
-impl BuildLocator {
-    fn id(&mut self, value: Option<i32>) {
-        self.id = value;
-    }
-
-    fn user(&mut self, value: Option<&str>) {
-        self.user = value.map(ToOwned::to_owned);
-    }
-
-    fn build_type(&mut self, value: Option<&str>) {
-        self.build_type = value.map(ToOwned::to_owned);
-    }
-
-    fn count(&mut self, value: Option<i32>) {
-        self.count = value.clone();
-    }
-}
-
-impl fmt::Display for BuildLocator {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let mut locators: Vec<String> = Vec::new();
-
-        if let Some(id) = self.id {
-            locators.push(format!("id:{}", id));
-        }
-
-        if let Some(user) = &self.user {
-            locators.push(format!("user:{}", user));
-        }
-
-        if let Some(build_type) = &self.build_type {
-            locators.push(format!("buildType:{}", build_type));
-        }
-
-        if let Some(count) = &self.count {
-            locators.push(format!("count:{}", count));
-        }
-
-        write!(f, "{}", locators.join(","))
-    }
-}
-
 impl<'a> Client<'a> {
-    async fn get_last_build(&self, locator: &BuildLocator) -> Result<Build> {
+    async fn get_last_build(&self, locator: &BuildLocator<'_>) -> Result<Build> {
         let url = format!(
             "{host}/app/rest/builds/{locator}?fields=id,buildTypeId,branchName,number,state,status,buildType:(id,name,project:(id,name,projects:(count,project:(id,name,buildTypes:(count,buildType)))))",
             host = self.get_host(),
@@ -168,18 +118,19 @@ impl<'a> Client<'a> {
     ) -> Result<BuildQueue> {
         // TODO: deploy the last master build, when build_id is "master"
 
-        let mut locator = BuildLocator::default();
+        let mut locator_builder = BuildLocatorBuilder::default();
         let id: Option<i32> = build_id.and_then(|v| v.parse().ok());
 
         if id.is_some() {
-            locator.id(id);
+            locator_builder.id(id);
         } else {
             let btype = self.get_build_type_by_path().context("Current path doesn't have association with BuildType through config (or contains non-utf8 symbols)")?;
 
-            locator.build_type(Some(&btype));
-            locator.user(Some("current"));
+            locator_builder.build_type(Some(btype.to_string()));
+            locator_builder.user(Some("current"));
         }
 
+        let locator = locator_builder.build()?;
         let build = self.get_last_build(&locator).await?;
 
         info!("#{} {} {}", build.id, build.build_type_id, build.number);

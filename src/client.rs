@@ -42,7 +42,7 @@ impl<'a> Client<'a> {
         Ok(headers)
     }
 
-    pub fn get_build_type_by_path(&self) -> Result<String> {
+    pub fn get_build_type_by_path(&self) -> Result<&str> {
         let repo = git2::Repository::discover(&self.workdir)?;
         let remote = repo.find_remote("origin")?;
         let url = remote.url().context("No url for origin")?;
@@ -58,6 +58,6 @@ impl<'a> Client<'a> {
         //     self.build_types.insert(file_name.clone(), r.id);
         // }
 
-        self.settings.build_types.get(&file_name).cloned().context("No build type for current repo")
+        self.settings.build_types.get(&file_name).map(|s| s.as_str()).context("No build type for current repo")
     }
 }

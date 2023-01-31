@@ -3,18 +3,19 @@ use serde::{Deserialize, Serialize};
 use crate::normalize::*;
 use crate::{BuildQueue, ArgBuildType};
 use crate::client::Client;
+use crate::build_locator::BuildLocatorBuilder;
 use tracing::info;
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct BuildTypeBody {
-    id: String,
+pub struct BuildTypeBody<'a> {
+    id: &'a str,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct BuildBody {
-    branch_name: String,
-    build_type: BuildTypeBody,
+pub struct BuildBody<'a> {
+    branch_name: &'a str,
+    build_type: BuildTypeBody<'a>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -104,16 +105,16 @@ impl<'a> IntoIterator for &'a Builds {
 
 impl<'a> Client<'a> {
     pub async fn run_build(&self, build_type: Option<&str>, branch_name: Option<&str>) -> Result<BuildQueue> {
-        let build_type = build_type.map(|s| s.to_string()).or_else(|| self.get_build_type_by_path().ok()).unwrap();
+        let build_type = build_type.or_else(|| self.get_build_type_by_path().ok()).unwrap();
         // .context("Current path doesn't have association with BuildType through config (or contains non-utf8 symbols)")
 
         let branch = normalize_branch_name(branch_name, Some(&self.workdir))?;
 
         let body = BuildBody {
             build_type: BuildTypeBody {
-                id: build_type.into(),
+                id: build_type,
             },
-            branch_name: branch.clone(),
+            branch_name: &branch,
         };
 
         let url = format!("{}/app/rest/buildQueue", self.get_host());
@@ -139,41 +140,31 @@ impl<'a> Client<'a> {
     ) -> Result<Builds> {
         let branch = normalize_branch_name(branch_name, Some(&self.workdir))?;
 
-        let mut locator: Vec<String> = vec![
-            format!("defaultFilter:false"),
-            format!("personal:false"),
-            format!("count:{}", limit.unwrap_or(5))
-        ];
+        let locator = BuildLocatorBuilder::default()
+            .count(limit)
+            .user(author)
+            .branch(Some(&branch))
+            .default_filter(Some(false))
+            .personal(Some(false))
+            .build_type(
+                match build_type.cloned().or_else(|| self.get_build_type_by_path().ok().map(|p| p.into())).unwrap() {
+                    ArgBuildType::Build => Some("(type:regular,name:Build)".to_string()),
+                    ArgBuildType::Deploy => Some("(type:deployment)".to_string()),
+                    ArgBuildType::Custom(custom) => {
+                        let bt = self.build_type_list().await.and_then(|list| {
+                            select_one(list.build_type, Some(&custom))
+                        })?;
 
-        if branch != "any" {
-            locator.push(format!("branch:{branch}"));
-        } else {
-            locator.push("branch:default:any".to_string());
-        }
-
-        match build_type.cloned().or_else(|| self.get_build_type_by_path().ok().map(|p| ArgBuildType::from(p.as_str()))).unwrap() {
-            ArgBuildType::Build => locator.push("buildType:(type:regular,name:Build)".to_string()),
-            ArgBuildType::Deploy => locator.push("buildType:(type:deployment)".to_string()),
-            ArgBuildType::Custom(custom) => {
-                let bt = self.build_type_list().await.and_then(|list| {
-                    select_one(list.build_type, Some(&custom))
-                })?;
-                locator.push(format!("buildType:{name}", name = bt.id))
-            },
-            _ => {},
-        };
-
-        if let Some(author) = author {
-            // let user_list = self.user_list().await?;
-            // let user = select(&user_list.user, Some(&author))?;
-            // locator.push(format!("user:{name}", name = user.username));
-            locator.push(format!("user:{author}"));
-        }
+                        Some(bt.id)
+                    },
+                    _ => None,
+                }
+            )
+            .build()?;
 
         let url = format!(
             "{host}/app/rest/builds?locator={locator}",
-            host = self.get_host(),
-            locator = locator.join(",")
+            host = self.get_host()
         );
 
         info!("{}", &url);
