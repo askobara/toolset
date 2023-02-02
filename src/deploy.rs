@@ -1,12 +1,12 @@
 use serde::{Deserialize, Serialize};
 
-use anyhow::{Result, Context, bail};
-use crate::BuildQueue;
+use crate::build_locator::{BuildLocator, BuildLocatorBuilder};
 use crate::build_type::BuildType;
 use crate::client::Client;
-use tracing::info;
 use crate::normalize::select_one;
-use crate::build_locator::{BuildLocator, BuildLocatorBuilder};
+use crate::BuildQueue;
+use anyhow::{bail, Context, Result};
+use tracing::info;
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -20,14 +20,14 @@ struct BuildTypes {
 struct ProjectWithBuildTypes {
     id: String,
     name: String,
-    build_types: BuildTypes
+    build_types: BuildTypes,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ProjectsWithBuildTypes {
     count: i32,
-    project: Vec<ProjectWithBuildTypes>
+    project: Vec<ProjectWithBuildTypes>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -62,9 +62,13 @@ struct Build {
 
 impl Build {
     fn build_types(&self) -> Vec<BuildType> {
-        self.build_type.project.projects.project.iter().flat_map(|prj| {
-            prj.build_types.build_type.iter().map(ToOwned::to_owned)
-        }).collect::<Vec<_>>()
+        self.build_type
+            .project
+            .projects
+            .project
+            .iter()
+            .flat_map(|prj| prj.build_types.build_type.iter().map(ToOwned::to_owned))
+            .collect::<Vec<_>>()
     }
 }
 
@@ -114,7 +118,7 @@ impl<'a> Client<'a> {
     pub async fn run_deploy(
         &self,
         build_id: Option<&str>,
-        env: Option<&str>
+        env: Option<&str>,
     ) -> Result<BuildQueue> {
         // TODO: deploy the last master build, when build_id is "master"
 
@@ -143,22 +147,21 @@ impl<'a> Client<'a> {
                 id: &selected_build_type.id,
             },
             snapshot_dependencies: DeployBuilds {
-                build: vec![
-                    DeployBuild { id: build.id }
-                ]
-            }
+                build: vec![DeployBuild { id: build.id }],
+            },
         };
 
         let url = format!("{host}/app/rest/buildQueue", host = self.get_host());
 
-        let response: BuildQueue = self.http_client.post(url)
+        let response: BuildQueue = self
+            .http_client
+            .post(url)
             .json(&body)
             .send()
             .await?
             .error_for_status()?
             .json()
-            .await?
-        ;
+            .await?;
 
         Ok(response)
     }

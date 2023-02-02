@@ -1,8 +1,8 @@
-use anyhow::Result;
-use crate::normalize::*;
-use skim::prelude::*;
 use crate::client::Client;
+use crate::normalize::*;
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
+use skim::prelude::*;
 use std::convert::AsRef;
 use struct_field_names_as_array::FieldNamesAsArray;
 
@@ -28,7 +28,7 @@ impl SkimItem for BuildType {
     }
 
     fn preview(&self, _context: PreviewContext) -> ItemPreview {
-        ItemPreview::Text(format!("{:#?}", self))
+        ItemPreview::Text(format!("{self:#?}"))
     }
 }
 
@@ -47,7 +47,10 @@ impl<'a> Client<'a> {
     pub async fn build_type_list(&self) -> Result<BuildTypes> {
         let fields = normalize_field_names(BuildTypes::FIELD_NAMES_AS_ARRAY).replace(
             "buildType",
-            &format!("buildType({})", normalize_field_names(BuildType::FIELD_NAMES_AS_ARRAY))
+            &format!(
+                "buildType({})",
+                normalize_field_names(BuildType::FIELD_NAMES_AS_ARRAY)
+            ),
         );
 
         let url = format!(
@@ -56,13 +59,14 @@ impl<'a> Client<'a> {
             host = self.get_host(),
         );
 
-        let response: BuildTypes = self.http_client.get(url)
+        let response: BuildTypes = self
+            .http_client
+            .get(url)
             .send()
             .await?
             .error_for_status()?
             .json()
-            .await?
-        ;
+            .await?;
 
         Ok(response)
     }

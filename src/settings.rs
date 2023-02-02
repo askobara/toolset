@@ -1,8 +1,8 @@
-use serde::{Serialize, Deserialize};
-use std::collections::HashMap;
+use anyhow::{Context, Result};
 use directories::ProjectDirs;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fs::File;
-use anyhow::{Result, Context};
 use std::path::PathBuf;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -38,8 +38,7 @@ impl Settings {
     pub fn config_path() -> Result<PathBuf> {
         let config_path = ProjectDirs::from("", "", "teamcity")
             .context("Couldn't retrive project dirs")
-            .map(|prj_dirs| prj_dirs.config_dir().join("config.yaml"))?
-        ;
+            .map(|prj_dirs| prj_dirs.config_dir().join("config.yaml"))?;
 
         if !config_path.exists() {
             File::create(&config_path)?;

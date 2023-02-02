@@ -1,9 +1,9 @@
+use crate::build_locator::BuildLocatorBuilder;
+use crate::client::Client;
+use crate::normalize::*;
+use crate::{ArgBuildType, BuildQueue};
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use crate::normalize::*;
-use crate::{BuildQueue, ArgBuildType};
-use crate::client::Client;
-use crate::build_locator::BuildLocatorBuilder;
 use tracing::info;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -25,7 +25,7 @@ pub struct Build {
     build_type_id: String,
     number: Option<String>,
     status: Option<String>, // SUCCESS/FAILURE/UNKNOWN
-    state: String, // queued/running/finished
+    state: String,          // queued/running/finished
     branch_name: Option<String>,
     href: String,
     web_url: String,
@@ -35,13 +35,20 @@ pub struct Build {
 fn format_datetime(datetime: &chrono::DateTime<chrono::FixedOffset>) -> String {
     let duration = chrono::Utc::now().signed_duration_since(*datetime);
 
-    match (duration.num_hours(), duration.num_minutes(), duration.num_seconds()) {
-        (4 .., _, _) => datetime.with_timezone(&chrono::Local).format("%a, %d %b %R").to_string(),
-        (hours @ 2 ..= 4, _, _) => format!("{hours} hours ago"),
+    match (
+        duration.num_hours(),
+        duration.num_minutes(),
+        duration.num_seconds(),
+    ) {
+        (4.., _, _) => datetime
+            .with_timezone(&chrono::Local)
+            .format("%a, %d %b %R")
+            .to_string(),
+        (hours @ 2..=4, _, _) => format!("{hours} hours ago"),
         (hours @ 1, _, _) => format!("{hours} hour ago"),
-        (_, mins @ 2 .., _) => format!("{mins} minutes ago"),
+        (_, mins @ 2.., _) => format!("{mins} minutes ago"),
         (_, mins @ 1, _) => format!("{mins} minute ago"),
-        (_, _, secs @ 10 ..) => format!("{secs} seconds ago"),
+        (_, _, secs @ 10..) => format!("{secs} seconds ago"),
         (_, _, _) => "a few moments ago".to_string(),
     }
 }
@@ -56,8 +63,9 @@ impl Build {
     }
 
     pub fn finished_at(&self) -> String {
-        self.finish_on_agent_date.as_ref()
-            .and_then(|str| chrono::DateTime::parse_from_str(&str, "%Y%m%dT%H%M%S%z").ok())
+        self.finish_on_agent_date
+            .as_ref()
+            .and_then(|str| chrono::DateTime::parse_from_str(str, "%Y%m%dT%H%M%S%z").ok())
             .map(|date| format_datetime(&date))
             .unwrap_or_default()
     }
@@ -104,29 +112,34 @@ impl<'a> IntoIterator for &'a Builds {
 }
 
 impl<'a> Client<'a> {
-    pub async fn run_build(&self, build_type: Option<&str>, branch_name: Option<&str>) -> Result<BuildQueue> {
-        let build_type = build_type.or_else(|| self.get_build_type_by_path().ok()).unwrap();
+    pub async fn run_build(
+        &self,
+        build_type: Option<&str>,
+        branch_name: Option<&str>,
+    ) -> Result<BuildQueue> {
+        let build_type = build_type
+            .or_else(|| self.get_build_type_by_path().ok())
+            .unwrap();
         // .context("Current path doesn't have association with BuildType through config (or contains non-utf8 symbols)")
 
         let branch = normalize_branch_name(branch_name, Some(&self.workdir))?;
 
         let body = BuildBody {
-            build_type: BuildTypeBody {
-                id: build_type,
-            },
+            build_type: BuildTypeBody { id: build_type },
             branch_name: &branch,
         };
 
         let url = format!("{}/app/rest/buildQueue", self.get_host());
 
-        let response: BuildQueue = self.http_client.post(url)
+        let response: BuildQueue = self
+            .http_client
+            .post(url)
             .json(&body)
             .send()
             .await?
             .error_for_status()?
             .json()
-            .await?
-        ;
+            .await?;
 
         Ok(response)
     }
@@ -136,7 +149,7 @@ impl<'a> Client<'a> {
         branch_name: Option<&str>,
         build_type: Option<&ArgBuildType>,
         author: Option<&str>,
-        limit: Option<u8>
+        limit: Option<u8>,
     ) -> Result<Builds> {
         let branch = normalize_branch_name(branch_name, Some(&self.workdir))?;
 
@@ -147,18 +160,23 @@ impl<'a> Client<'a> {
             .default_filter(Some(false))
             .personal(Some(false))
             .build_type(
-                match build_type.cloned().or_else(|| self.get_build_type_by_path().ok().map(|p| p.into())).unwrap() {
+                match build_type
+                    .cloned()
+                    .or_else(|| self.get_build_type_by_path().ok().map(|p| p.into()))
+                    .unwrap()
+                {
                     ArgBuildType::Build => Some("(type:regular,name:Build)".to_string()),
                     ArgBuildType::Deploy => Some("(type:deployment)".to_string()),
                     ArgBuildType::Custom(custom) => {
-                        let bt = self.build_type_list().await.and_then(|list| {
-                            select_one(list.build_type, Some(&custom))
-                        })?;
+                        let bt = self
+                            .build_type_list()
+                            .await
+                            .and_then(|list| select_one(list.build_type, Some(&custom)))?;
 
                         Some(bt.id)
-                    },
+                    }
                     _ => None,
-                }
+                },
             )
             .build()?;
 
@@ -169,13 +187,14 @@ impl<'a> Client<'a> {
 
         info!("{}", &url);
 
-        let response: Builds = self.http_client.get(url)
+        let response: Builds = self
+            .http_client
+            .get(url)
             .send()
             .await?
             .error_for_status()?
             .json()
-            .await?
-        ;
+            .await?;
 
         Ok(response)
     }

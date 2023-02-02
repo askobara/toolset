@@ -51,5 +51,3 @@ impl<'a> fmt::Display for BuildLocator<'a> {
         write!(f, "{}", locators.join(","))
     }
 }
-
-

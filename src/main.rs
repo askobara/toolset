@@ -1,33 +1,36 @@
-#[macro_use] extern crate lazy_static;
-#[macro_use] extern crate prettytable;
-#[macro_use] extern crate derive_builder;
+#[macro_use]
+extern crate lazy_static;
+#[macro_use]
+extern crate prettytable;
+#[macro_use]
+extern crate derive_builder;
 extern crate skim;
 
 use anyhow::Result;
 use arboard::Clipboard;
+use clap::{Command, CommandFactory, Parser, Subcommand};
 use clap_complete::{generate, Generator, Shell};
-use clap::{Parser, Command, CommandFactory, Subcommand};
 use console::style;
-use prettytable::format::{TableFormat, FormatBuilder, LinePosition, LineSeparator};
+use prettytable::format::{FormatBuilder, LinePosition, LineSeparator, TableFormat};
 use prettytable::Table;
 use serde::{Deserialize, Serialize};
 use std::io;
 
+mod build;
+mod build_locator;
+mod build_type;
+mod client;
+mod deploy;
 mod normalize;
 mod settings;
-mod client;
-mod build;
-mod deploy;
-mod build_type;
-mod build_locator;
 
 use crate::settings::*;
 
 lazy_static! {
     static ref TABLE_FORMAT: TableFormat = FormatBuilder::new()
         .column_separator(' ')
-        .separator(LinePosition::Top,    LineSeparator::new('─', ' ', ' ', ' '))
-        .separator(LinePosition::Title,  LineSeparator::new('─', ' ', ' ', ' '))
+        .separator(LinePosition::Top, LineSeparator::new('─', ' ', ' ', ' '))
+        .separator(LinePosition::Title, LineSeparator::new('─', ' ', ' ', ' '))
         .separator(LinePosition::Intern, LineSeparator::new('┈', ' ', ' ', ' '))
         .separator(LinePosition::Bottom, LineSeparator::new('─', ' ', ' ', ' '))
         .padding(1, 1)
@@ -57,10 +60,10 @@ pub enum ArgBuildType {
 impl std::convert::From<&str> for ArgBuildType {
     fn from(s: &str) -> Self {
         match s.to_ascii_lowercase().as_str() {
-            "build"|"b" => ArgBuildType::Build,
-            "deploy"|"d" => ArgBuildType::Deploy,
+            "build" | "b" => ArgBuildType::Build,
+            "deploy" | "d" => ArgBuildType::Deploy,
             "any" => ArgBuildType::Any,
-            custom @ _ => ArgBuildType::Custom(custom.to_string()),
+            custom => ArgBuildType::Custom(custom.to_string()),
         }
     }
 }
@@ -96,9 +99,9 @@ enum Commands {
     ListBuilds {
         #[arg(short, long, conflicts_with_all=["branch_name", "build_type", "master"])]
         any: bool,
-        #[arg(short, long, conflicts_with="branch_name")]
+        #[arg(short, long, conflicts_with = "branch_name")]
         master: bool,
-        #[arg(long, conflicts_with="author")]
+        #[arg(long, conflicts_with = "author")]
         my: bool,
         /// use "any" as a value to disable filter, current branch name is using by default.
         #[arg(long)]
@@ -116,8 +119,7 @@ enum Commands {
     },
 
     #[command()]
-    Init {
-    },
+    Init {},
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -126,7 +128,7 @@ struct User {
     username: String,
     name: String,
     id: u32,
-    href: String
+    href: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -164,12 +166,11 @@ async fn main() -> Result<()> {
 
     if let Some(generator) = cli.generator {
         let mut cmd = Cli::command();
-        eprintln!("Generating completion file for {:?}...", generator);
+        eprintln!("Generating completion file for {generator:?}...");
         print_completions(generator, &mut cmd);
 
         return Ok(());
     } else if let Some(command) = cli.command {
-
         let config = Settings::new()?;
         let client = client::Client::new(&config.teamcity, cli.workdir.as_deref())?;
 
@@ -184,15 +185,25 @@ async fn main() -> Result<()> {
                     // FIXME: x11 will clear the clipboard when program is exit
                     println!("{}", style("✔ copied!").green().italic());
                 }
-            },
+            }
 
             Commands::RunDeploy { build_id, env } => {
-                let response = client.run_deploy(build_id.as_deref(), env.as_deref()).await?;
+                let response = client
+                    .run_deploy(build_id.as_deref(), env.as_deref())
+                    .await?;
 
                 println!("{}", response.web_url);
-            },
+            }
 
-            Commands::ListBuilds { any, my, master, mut branch_name, mut build_type, mut author, limit } => {
+            Commands::ListBuilds {
+                any,
+                my,
+                master,
+                mut branch_name,
+                mut build_type,
+                mut author,
+                limit,
+            } => {
                 if any {
                     branch_name.replace("any".into());
                     build_type.replace("any".into());
@@ -204,7 +215,14 @@ async fn main() -> Result<()> {
                     author.replace("current".into());
                 }
 
-                let builds = client.get_builds(branch_name.as_deref(), build_type.as_ref(), author.as_deref(), limit).await?;
+                let builds = client
+                    .get_builds(
+                        branch_name.as_deref(),
+                        build_type.as_ref(),
+                        author.as_deref(),
+                        limit,
+                    )
+                    .await?;
 
                 let mut table = Table::new();
                 table.set_format(*TABLE_FORMAT);
@@ -216,7 +234,7 @@ async fn main() -> Result<()> {
                             "SUCCESS" => format!("{}", style("✓").green().bold()),
                             "FAILURE" => format!("{}", style("✗").red().bold()),
                             "UNKNOWN" => format!("{}", style("?").bold()),
-                            _ => "unexpected status".to_string()
+                            _ => "unexpected status".to_string(),
                         },
                         format!(
                             "{} {}",
@@ -224,7 +242,7 @@ async fn main() -> Result<()> {
                                 "queued" => "祥queued",
                                 "running" => "痢running",
                                 "finished" => "",
-                                _ => "?"
+                                _ => "?",
                             },
                             build.finished_at()
                         ),
@@ -240,13 +258,12 @@ async fn main() -> Result<()> {
                 }
 
                 table.printstd();
-            },
+            }
 
             Commands::Init {} => {
                 unimplemented!()
-            },
+            }
         }
-
     }
 
     Ok(())
