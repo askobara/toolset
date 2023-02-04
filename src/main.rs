@@ -18,6 +18,7 @@ use std::io;
 
 mod build;
 mod build_locator;
+mod build_type_locator;
 mod build_type;
 mod client;
 mod deploy;

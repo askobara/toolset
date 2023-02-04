@@ -32,18 +32,11 @@ pub fn normalize_field_names(fields: &[&str]) -> String {
         .join(",")
 }
 
-pub fn select_one<I, T>(data: I, query: Option<&str>) -> Result<T>
+fn skim_select<I, T>(data: I, options: &SkimOptions) -> Result<Vec<T>>
 where
     T: SkimItem + Clone,
     I: IntoIterator<Item = T>,
 {
-    let options = SkimOptionsBuilder::default()
-        .height(Some("20%"))
-        .query(query)
-        .select1(query.is_some())
-        .build()
-        .unwrap();
-
     let (tx_item, rx_item): (SkimItemSender, SkimItemReceiver) = unbounded();
 
     for item in data {
@@ -57,10 +50,43 @@ where
         .map(|out| out.selected_items)
         .unwrap_or_else(Vec::new);
 
-    let result: &T = selected_items
-        .first()
-        .and_then(|v| (**v).as_any().downcast_ref())
-        .context("No env selected")?;
+    let result: Vec<T> = selected_items
+        .iter()
+        .filter_map(|v| (**v).as_any().downcast_ref())
+        .map(|v: &T| v.clone())
+        .collect::<Vec<T>>()
+    ;
 
-    Ok(result.to_owned())
+    Ok(result)
+
+}
+
+pub fn select_many<I, T>(data: I, query: Option<&str>) -> Result<Vec<T>>
+where
+    T: SkimItem + Clone,
+    I: IntoIterator<Item = T>,
+{
+    let options = SkimOptionsBuilder::default()
+        .height(Some("20%"))
+        .query(query)
+        .multi(true)
+        .build()
+        .unwrap();
+
+    skim_select(data, &options)
+}
+
+pub fn select_one<I, T>(data: I, query: Option<&str>) -> Result<T>
+where
+    T: SkimItem + Clone,
+    I: IntoIterator<Item = T>,
+{
+    let options = SkimOptionsBuilder::default()
+        .height(Some("20%"))
+        .query(query)
+        .select1(query.is_some())
+        .build()
+        .unwrap();
+
+    skim_select(data, &options)?.first().map(|v| v.clone()).context("No item was seleced")
 }

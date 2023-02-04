@@ -1,4 +1,5 @@
 use crate::build_locator::BuildLocatorBuilder;
+use crate::build_type_locator::BuildTypeLocator;
 use crate::client::Client;
 use crate::normalize::*;
 use crate::{ArgBuildType, BuildQueue};
@@ -165,18 +166,18 @@ impl<'a> Client<'a> {
                     .or_else(|| self.get_build_type_by_path().ok().map(|p| p.into()))
                     .unwrap()
                 {
-                    ArgBuildType::Build => Some("(type:regular,name:Build)".to_string()),
-                    ArgBuildType::Deploy => Some("(type:deployment)".to_string()),
+                    ArgBuildType::Build => Some(BuildTypeLocator::only_builds()),
+                    ArgBuildType::Deploy => Some(BuildTypeLocator::only_deploys()),
                     ArgBuildType::Custom(custom) => {
-                        let bt = self
+                        self
                             .build_type_list()
                             .await
-                            .and_then(|list| select_one(list.build_type, Some(&custom)))?;
-
-                        Some(bt.id)
+                            .and_then(|list| select_many(list.build_type, Some(&custom)))
+                            .map(BuildTypeLocator::from)
+                            .ok()
                     }
                     _ => None,
-                },
+                }
             )
             .build()?;
 

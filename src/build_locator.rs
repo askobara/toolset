@@ -5,11 +5,20 @@ use std::fmt;
 pub struct BuildLocator<'a> {
     id: Option<i32>,
     user: Option<&'a str>,
+    #[builder(setter(custom))]
     build_type: Option<String>, // TODO: remove owning
     count: Option<u8>,
     branch: Option<&'a str>,
     personal: Option<bool>,
     default_filter: Option<bool>,
+}
+
+impl BuildLocatorBuilder<'_> {
+    pub fn build_type(&mut self, value: Option<impl Into<String>>) -> &mut Self {
+        self.build_type = Some(value.map(Into::into));
+
+        self
+    }
 }
 
 impl<'a> fmt::Display for BuildLocator<'a> {
