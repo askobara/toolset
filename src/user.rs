@@ -9,9 +9,8 @@ use struct_field_names_as_array::FieldNamesAsArray;
 #[serde(rename_all = "camelCase")]
 pub struct User {
     pub(crate) username: String,
-    name: String,
+    pub(crate) name: String,
     id: i32,
-    email: String,
 }
 
 impl SkimItem for User {
@@ -22,6 +21,14 @@ impl SkimItem for User {
     fn preview(&self, _context: PreviewContext) -> ItemPreview {
         ItemPreview::Text(format!("{:#?}", self))
     }
+}
+
+#[derive(Debug, Serialize, Deserialize, FieldNamesAsArray)]
+#[serde(rename_all = "camelCase")]
+pub struct Triggered {
+    pub r#type: String,
+    date: String,
+    pub user: Option<User>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, FieldNamesAsArray)]

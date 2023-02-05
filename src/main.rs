@@ -15,6 +15,7 @@ use prettytable::format::{FormatBuilder, LinePosition, LineSeparator, TableForma
 use prettytable::Table;
 use serde::{Deserialize, Serialize};
 use std::io;
+use crate::user::Triggered;
 
 mod build;
 mod build_locator;
@@ -24,6 +25,7 @@ mod client;
 mod deploy;
 mod normalize;
 mod settings;
+mod user;
 
 use crate::settings::*;
 
@@ -98,7 +100,7 @@ enum Commands {
 
     #[command()]
     ListBuilds {
-        #[arg(short, long, conflicts_with_all=["branch_name", "build_type", "master"])]
+        #[arg(short, long, conflicts_with_all = ["branch_name", "build_type", "master"])]
         any: bool,
         #[arg(short, long, conflicts_with = "branch_name")]
         master: bool,
@@ -121,23 +123,6 @@ enum Commands {
 
     #[command()]
     Init {},
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct User {
-    username: String,
-    name: String,
-    id: u32,
-    href: String,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct Triggered {
-    r#type: String,
-    date: String,
-    user: User,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -228,7 +213,7 @@ async fn main() -> Result<()> {
                 let mut table = Table::new();
                 table.set_format(*TABLE_FORMAT);
 
-                table.set_titles(row!["", "date", "build type", "build id", "url (branch)"]);
+                table.set_titles(row!["", "date", "build type", "build id", "url (branch)", "triggered by"]);
                 for build in &builds {
                     table.add_row(row![
                         match build.status().unwrap_or("UNKNOWN") {
@@ -255,6 +240,7 @@ async fn main() -> Result<()> {
                             url = style(build.web_url()).blue().underlined(),
                             branch = build.branch_name().unwrap_or("master (default branch)"),
                         ),
+                        build.triggered_by()
                     ]);
                 }
 

@@ -1,11 +1,13 @@
 use crate::build_locator::BuildLocatorBuilder;
 use crate::build_type_locator::BuildTypeLocator;
 use crate::client::Client;
+use crate::user::{User, Triggered};
 use crate::normalize::*;
 use crate::{ArgBuildType, BuildQueue};
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use tracing::info;
+use struct_field_names_as_array::FieldNamesAsArray;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BuildTypeBody<'a> {
@@ -19,8 +21,9 @@ pub struct BuildBody<'a> {
     build_type: BuildTypeBody<'a>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, FieldNamesAsArray)]
 #[serde(rename_all = "camelCase")]
+#[field_names_as_array(rename_all = "camelCase")]
 pub struct Build {
     pub(crate) id: i32,
     build_type_id: String,
@@ -31,6 +34,7 @@ pub struct Build {
     href: String,
     web_url: String,
     finish_on_agent_date: Option<String>,
+    triggered: Triggered,
 }
 
 fn format_datetime(datetime: &chrono::DateTime<chrono::FixedOffset>) -> String {
@@ -82,10 +86,19 @@ impl Build {
     pub fn branch_name(&self) -> Option<&str> {
         self.branch_name.as_deref()
     }
+
+    pub fn triggered_by(&self) -> &str {
+        if let Some(user) = &self.triggered.user {
+            return user.name.as_str();
+        } else {
+            return self.triggered.r#type.as_str();
+        }
+    }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, FieldNamesAsArray)]
 #[serde(rename_all = "camelCase")]
+#[field_names_as_array(rename_all = "camelCase")]
 pub struct Builds {
     count: i32,
     href: String,
@@ -163,7 +176,7 @@ impl<'a> Client<'a> {
             .build_type(
                 match build_type
                     .cloned()
-                    .or_else(|| self.get_build_type_by_path().ok().map(|p| p.into()))
+                    .or_else(|| self.get_build_type_by_path().ok().map(Into::into))
                     .unwrap()
                 {
                     ArgBuildType::Build => Some(BuildTypeLocator::only_builds()),
@@ -173,7 +186,7 @@ impl<'a> Client<'a> {
                             .build_type_list()
                             .await
                             .and_then(|list| select_many(list.build_type, Some(&custom)))
-                            .map(BuildTypeLocator::from)
+                            .map(BuildTypeLocator::from) // should returns None when empty
                             .ok()
                     }
                     _ => None,
@@ -181,8 +194,28 @@ impl<'a> Client<'a> {
             )
             .build()?;
 
+        let fields = normalize_field_names(Builds::FIELD_NAMES_AS_ARRAY).replace(
+            "build",
+            &format!(
+                "build({})",
+                normalize_field_names(Build::FIELD_NAMES_AS_ARRAY).replace(
+                    "triggered",
+                    &format!(
+                        "triggered({})",
+                        normalize_field_names(Triggered::FIELD_NAMES_AS_ARRAY).replace(
+                            "user",
+                            &format!(
+                                "user({})",
+                                normalize_field_names(User::FIELD_NAMES_AS_ARRAY)
+                            )
+                        )
+                    )
+                )
+            ),
+        );
+
         let url = format!(
-            "{host}/app/rest/builds?locator={locator}",
+            "{host}/app/rest/builds?locator={locator}&fields={fields}",
             host = self.get_host()
         );
 

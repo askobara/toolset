@@ -18,7 +18,7 @@ pub fn normalize_branch_name(branch_name: Option<&str>, path: Option<&Path>) -> 
             let head = repo.head()?;
 
             head.shorthand()
-                .map(|s| s.into())
+                .map(Into::into)
                 .context("unable to get a branch name due to non-utf8 symbols")
         }
     }
