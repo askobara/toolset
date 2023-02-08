@@ -1,13 +1,13 @@
 use crate::build_locator::BuildLocatorBuilder;
 use crate::build_type_locator::BuildTypeLocator;
 use crate::client::Client;
-use crate::user::{User, Triggered};
 use crate::normalize::*;
+use crate::user::{Triggered, User};
 use crate::{ArgBuildType, BuildQueue};
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use tracing::info;
 use struct_field_names_as_array::FieldNamesAsArray;
+use tracing::info;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BuildTypeBody<'a> {
@@ -45,11 +45,11 @@ fn format_datetime(datetime: &chrono::DateTime<chrono::FixedOffset>) -> String {
         duration.num_minutes(),
         duration.num_seconds(),
     ) {
-        (4.., _, _) => datetime
+        (12.., _, _) => datetime
             .with_timezone(&chrono::Local)
             .format("%a, %d %b %R")
             .to_string(),
-        (hours @ 2..=4, _, _) => format!("{hours} hours ago"),
+        (hours @ 2..=12, _, _) => format!("{hours} hours ago"),
         (hours @ 1, _, _) => format!("{hours} hour ago"),
         (_, mins @ 2.., _) => format!("{mins} minutes ago"),
         (_, mins @ 1, _) => format!("{mins} minute ago"),
@@ -182,15 +182,14 @@ impl<'a> Client<'a> {
                     ArgBuildType::Build => Some(BuildTypeLocator::only_builds()),
                     ArgBuildType::Deploy => Some(BuildTypeLocator::only_deploys()),
                     ArgBuildType::Custom(custom) => {
-                        self
-                            .build_type_list()
+                        self.build_type_list()
                             .await
                             .and_then(|list| select_many(list.build_type, Some(&custom)))
-                            .map(BuildTypeLocator::from) // should returns None when empty
+                            .map(BuildTypeLocator::from)
                             .ok()
                     }
                     _ => None,
-                }
+                },
             )
             .build()?;
 

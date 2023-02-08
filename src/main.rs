@@ -6,6 +6,7 @@ extern crate prettytable;
 extern crate derive_builder;
 extern crate skim;
 
+use crate::user::Triggered;
 use anyhow::Result;
 use arboard::Clipboard;
 use clap::{Command, CommandFactory, Parser, Subcommand};
@@ -15,12 +16,11 @@ use prettytable::format::{FormatBuilder, LinePosition, LineSeparator, TableForma
 use prettytable::Table;
 use serde::{Deserialize, Serialize};
 use std::io;
-use crate::user::Triggered;
 
 mod build;
 mod build_locator;
-mod build_type_locator;
 mod build_type;
+mod build_type_locator;
 mod client;
 mod deploy;
 mod normalize;
@@ -46,7 +46,7 @@ struct Cli {
     // If provided, outputs the completion file for given shell
     #[arg(long = "generate", value_enum)]
     generator: Option<Shell>,
-    #[arg(long)]
+    #[arg(long, value_hint = clap::ValueHint::DirPath)]
     workdir: Option<std::path::PathBuf>,
     #[command(subcommand)]
     command: Option<Commands>,
@@ -213,7 +213,14 @@ async fn main() -> Result<()> {
                 let mut table = Table::new();
                 table.set_format(*TABLE_FORMAT);
 
-                table.set_titles(row!["", "date", "build type", "build id", "url (branch)", "triggered by"]);
+                table.set_titles(row![
+                    "",
+                    "date",
+                    "build type",
+                    "build id",
+                    "url (branch)",
+                    "triggered by"
+                ]);
                 for build in &builds {
                     table.add_row(row![
                         match build.status().unwrap_or("UNKNOWN") {

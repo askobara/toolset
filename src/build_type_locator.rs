@@ -1,6 +1,6 @@
-use std::fmt;
 use crate::build_type::BuildType;
 use std::convert::From;
+use std::fmt;
 
 #[derive(Debug, Default, Builder, Clone)]
 #[builder(default)]
@@ -31,7 +31,7 @@ impl BuildTypeLocator {
     }
 }
 
-impl<'a> fmt::Display for BuildTypeLocator {
+impl fmt::Display for BuildTypeLocator {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut locators: Vec<String> = Vec::new();
 

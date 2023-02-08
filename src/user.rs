@@ -1,8 +1,8 @@
-use anyhow::Result;
 use crate::client::Client;
 use crate::normalize::*;
-use skim::prelude::*;
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
+use skim::prelude::*;
 use struct_field_names_as_array::FieldNamesAsArray;
 
 #[derive(Debug, Serialize, Deserialize, Clone, FieldNamesAsArray)]
@@ -19,7 +19,7 @@ impl SkimItem for User {
     }
 
     fn preview(&self, _context: PreviewContext) -> ItemPreview {
-        ItemPreview::Text(format!("{:#?}", self))
+        ItemPreview::Text(format!("{self:#?}"))
     }
 }
 
@@ -42,7 +42,10 @@ impl<'a> Client<'a> {
     pub async fn user_list(&self) -> Result<Users> {
         let fields = normalize_field_names(Users::FIELD_NAMES_AS_ARRAY).replace(
             "user",
-            &format!("user({})", normalize_field_names(User::FIELD_NAMES_AS_ARRAY))
+            &format!(
+                "user({})",
+                normalize_field_names(User::FIELD_NAMES_AS_ARRAY)
+            ),
         );
 
         let url = format!(
@@ -50,15 +53,15 @@ impl<'a> Client<'a> {
             host = self.get_host(),
         );
 
-        let response: Users = self.http_client.get(url)
+        let response: Users = self
+            .http_client
+            .get(url)
             .send()
             .await?
             .error_for_status()?
             .json()
-            .await?
-        ;
+            .await?;
 
         Ok(response)
     }
-
 }

@@ -45,7 +45,7 @@ where
 
     drop(tx_item); // so that skim could know when to stop waiting for more items.
 
-    let selected_items = Skim::run_with(&options, Some(rx_item))
+    let selected_items = Skim::run_with(options, Some(rx_item))
         .filter(|out| !out.is_abort)
         .map(|out| out.selected_items)
         .unwrap_or_else(Vec::new);
@@ -53,12 +53,10 @@ where
     let result: Vec<T> = selected_items
         .iter()
         .filter_map(|v| (**v).as_any().downcast_ref())
-        .map(|v: &T| v.clone())
-        .collect::<Vec<T>>()
-    ;
+        .cloned()
+        .collect::<Vec<T>>();
 
     Ok(result)
-
 }
 
 pub fn select_many<I, T>(data: I, query: Option<&str>) -> Result<Vec<T>>
@@ -69,11 +67,18 @@ where
     let options = SkimOptionsBuilder::default()
         .height(Some("20%"))
         .query(query)
+        .select1(query.is_some())
         .multi(true)
         .build()
         .unwrap();
 
-    skim_select(data, &options)
+    skim_select(data, &options).and_then(|arr| {
+        if !arr.is_empty() {
+            Ok(arr)
+        } else {
+            anyhow::bail!("No items selected")
+        }
+    })
 }
 
 pub fn select_one<I, T>(data: I, query: Option<&str>) -> Result<T>
@@ -88,5 +93,8 @@ where
         .build()
         .unwrap();
 
-    skim_select(data, &options)?.first().map(|v| v.clone()).context("No item was seleced")
+    skim_select(data, &options)?
+        .first()
+        .cloned()
+        .context("No item was selected")
 }

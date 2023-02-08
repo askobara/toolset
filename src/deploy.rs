@@ -121,6 +121,7 @@ impl<'a> Client<'a> {
         env: Option<&str>,
     ) -> Result<BuildQueue> {
         // TODO: deploy the last master build, when build_id is "master"
+        // TODO: rerun deploy jobs
 
         let mut locator_builder = BuildLocatorBuilder::default();
         let id: Option<i32> = build_id.and_then(|v| v.parse().ok());
