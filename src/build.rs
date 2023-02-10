@@ -7,7 +7,6 @@ use crate::{ArgBuildType, BuildQueue};
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use struct_field_names_as_array::FieldNamesAsArray;
-use tracing::info;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BuildTypeBody<'a> {
@@ -143,17 +142,7 @@ impl<'a> Client<'a> {
             branch_name: &branch,
         };
 
-        let url = format!("{}/app/rest/buildQueue", self.get_host());
-
-        let response: BuildQueue = self
-            .http_client
-            .post(url)
-            .json(&body)
-            .send()
-            .await?
-            .error_for_status()?
-            .json()
-            .await?;
+        let response: BuildQueue = self.post("/app/rest/buildQueue", &body).await?;
 
         Ok(response)
     }
@@ -213,21 +202,8 @@ impl<'a> Client<'a> {
             ),
         );
 
-        let url = format!(
-            "{host}/app/rest/builds?locator={locator}&fields={fields}",
-            host = self.get_host()
-        );
-
-        info!("{}", &url);
-
-        let response: Builds = self
-            .http_client
-            .get(url)
-            .send()
-            .await?
-            .error_for_status()?
-            .json()
-            .await?;
+        let url = format!("/app/rest/builds?locator={locator}&fields={fields}");
+        let response: Builds = self.get(url).await?;
 
         Ok(response)
     }

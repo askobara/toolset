@@ -3,6 +3,7 @@ use crate::settings::TeamcitySettings;
 use anyhow::{Context, Result};
 use reqwest::header;
 use std::path::{Path, PathBuf};
+use tracing::info;
 
 pub struct Client<'a> {
     pub(crate) http_client: reqwest::Client,
@@ -23,8 +24,49 @@ impl<'a> Client<'a> {
         })
     }
 
-    pub fn get_host(&self) -> &str {
-        &self.settings.host
+    pub async fn post<B, R>(&self, url: &str, body: &B) -> Result<R>
+    where
+        B: serde::Serialize + ?Sized,
+        R: serde::de::DeserializeOwned
+    {
+        let u = reqwest::Url::parse(&self.settings.host)
+            .and_then(|u| u.join(url))
+            .map_err(anyhow::Error::new)?;
+
+        info!("{u}");
+
+        self
+            .http_client
+            .post(u)
+            .json(&body)
+            .send()
+            .await?
+            .error_for_status()?
+            .json()
+            .await
+            .map_err(anyhow::Error::new)
+    }
+
+    pub async fn get<U, R>(&self, url: U) -> Result<R>
+    where
+        U: Into<String>,
+        R: serde::de::DeserializeOwned
+    {
+        let u = reqwest::Url::parse(&self.settings.host)
+            .and_then(|u| u.join(&url.into()))
+            .map_err(anyhow::Error::new)?;
+
+        info!("{u}");
+
+        self
+            .http_client
+            .get(u)
+            .send()
+            .await?
+            .error_for_status()?
+            .json()
+            .await
+            .map_err(anyhow::Error::new)
     }
 
     fn default_headers(settings: &TeamcitySettings) -> Result<header::HeaderMap> {

@@ -101,12 +101,10 @@ struct DeployBody<'a> {
 impl<'a> Client<'a> {
     async fn get_last_build(&self, locator: &BuildLocator<'_>) -> Result<Build> {
         let url = format!(
-            "{host}/app/rest/builds/{locator}?fields=id,buildTypeId,branchName,number,state,status,buildType:(id,name,project:(id,name,projects:(count,project:(id,name,buildTypes:(count,buildType)))))",
-            host = self.get_host(),
-            locator = locator,
+            "/app/rest/builds/{locator}?fields=id,buildTypeId,branchName,number,state,status,buildType:(id,name,project:(id,name,projects:(count,project:(id,name,buildTypes:(count,buildType)))))",
         );
 
-        let build: Build = self.http_client.get(url).send().await?.json().await?;
+        let build: Build = self.get(url).await?;
 
         match (build.state.as_str(), build.status.as_deref()) {
             (_, Some("FAILURE")) => bail!("Build #{id} is failed", id = build.id),
@@ -152,17 +150,7 @@ impl<'a> Client<'a> {
             },
         };
 
-        let url = format!("{host}/app/rest/buildQueue", host = self.get_host());
-
-        let response: BuildQueue = self
-            .http_client
-            .post(url)
-            .json(&body)
-            .send()
-            .await?
-            .error_for_status()?
-            .json()
-            .await?;
+        let response: BuildQueue = self.post("/app/rest/buildQueue", &body).await?;
 
         Ok(response)
     }

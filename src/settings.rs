@@ -1,11 +1,11 @@
 use anyhow::{Context, Result};
 use directories::ProjectDirs;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::collections::HashMap;
 use std::fs::File;
 use std::path::PathBuf;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct TeamcitySettings {
     pub host: String,
     pub auth_token: String,
@@ -22,7 +22,7 @@ impl Default for TeamcitySettings {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct Settings {
     #[serde(default)]
     pub teamcity: TeamcitySettings,

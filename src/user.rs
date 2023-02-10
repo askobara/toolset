@@ -48,19 +48,8 @@ impl<'a> Client<'a> {
             ),
         );
 
-        let url = format!(
-            "{host}/app/rest/users?fields={fields}",
-            host = self.get_host(),
-        );
-
-        let response: Users = self
-            .http_client
-            .get(url)
-            .send()
-            .await?
-            .error_for_status()?
-            .json()
-            .await?;
+        let url = format!("/app/rest/users?fields={fields}");
+        let response: Users = self.get(url).await?;
 
         Ok(response)
     }

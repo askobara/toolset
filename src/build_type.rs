@@ -53,20 +53,8 @@ impl<'a> Client<'a> {
             ),
         );
 
-        let url = format!(
-            // ?locator=type:regular,name:Build&
-            "{host}/app/rest/buildTypes?fields={fields}",
-            host = self.get_host(),
-        );
-
-        let response: BuildTypes = self
-            .http_client
-            .get(url)
-            .send()
-            .await?
-            .error_for_status()?
-            .json()
-            .await?;
+        let url = format!("/app/rest/buildTypes?fields={fields}");
+        let response: BuildTypes = self.get(url).await?;
 
         Ok(response)
     }

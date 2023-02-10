@@ -69,6 +69,7 @@ where
         .query(query)
         .select1(query.is_some())
         .multi(true)
+        .bind(vec!["ctrl-a:beginning-of-line", "ctrl-e:end-of-line"])
         .build()
         .unwrap();
 
