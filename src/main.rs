@@ -5,6 +5,7 @@ extern crate prettytable;
 #[macro_use]
 extern crate derive_builder;
 extern crate skim;
+extern crate colored_json;
 
 use crate::user::Triggered;
 use anyhow::Result;
@@ -92,8 +93,10 @@ enum Commands {
 
     #[command()]
     RunDeploy {
-        #[arg(short, long)]
+        #[arg(short, long, conflicts_with = "branch_name")]
         build_id: Option<String>,
+        #[arg(long)]
+        branch_name: Option<String>,
         #[arg(short, long)]
         env: Option<String>,
     },
@@ -173,9 +176,9 @@ async fn main() -> Result<()> {
                 }
             }
 
-            Commands::RunDeploy { build_id, env } => {
+            Commands::RunDeploy { build_id, env, branch_name } => {
                 let response = client
-                    .run_deploy(build_id.as_deref(), env.as_deref())
+                    .run_deploy(build_id.as_deref(), env.as_deref(), branch_name.as_deref())
                     .await?;
 
                 println!("{}", response.web_url);

@@ -17,9 +17,22 @@ pub fn normalize_branch_name(branch_name: Option<&str>, path: Option<&Path>) -> 
             let repo = git2::Repository::discover(p)?;
             let head = repo.head()?;
 
-            head.shorthand()
-                .map(Into::into)
-                .context("unable to get a branch name due to non-utf8 symbols")
+            let refname = head.name().context("unable to get a branch name due to non-utf8 symbols")?;
+
+            let r = repo.branch_upstream_name(refname)
+                .map_err(anyhow::Error::new)
+                .and_then(|b| {
+                    b.as_str()
+                        .map(String::from)
+                        .context("unable to get a branch name due to non-utf8 symbols")
+                })?
+            ;
+
+            Path::new(&r)
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .map(|s| s.to_owned())
+                .context("Cannot get repo name")
         }
     }
 }

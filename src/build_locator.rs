@@ -8,7 +8,7 @@ pub struct BuildLocator<'a> {
     #[builder(setter(custom))]
     build_type: Option<String>, // TODO: remove owning
     count: Option<u8>,
-    branch: Option<&'a str>,
+    branch: Option<String>,
     personal: Option<bool>,
     default_filter: Option<bool>,
 }

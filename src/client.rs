@@ -4,6 +4,7 @@ use anyhow::{Context, Result};
 use reqwest::header;
 use std::path::{Path, PathBuf};
 use tracing::info;
+use colored_json::to_colored_json_auto;
 
 pub struct Client<'a> {
     pub(crate) http_client: reqwest::Client,
@@ -26,14 +27,17 @@ impl<'a> Client<'a> {
 
     pub async fn post<B, R>(&self, url: &str, body: &B) -> Result<R>
     where
-        B: serde::Serialize + ?Sized,
+        B: serde::Serialize + std::fmt::Debug + ?Sized,
         R: serde::de::DeserializeOwned
     {
         let u = reqwest::Url::parse(&self.settings.host)
             .and_then(|u| u.join(url))
             .map_err(anyhow::Error::new)?;
 
-        info!("{u}");
+        #[cfg(windows)]
+        let _enabled = colored_json::enable_ansi_support();
+
+        info!("{u}\n{}", serde_json::to_value(&body).and_then(|v| to_colored_json_auto(&v))?);
 
         self
             .http_client

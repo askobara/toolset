@@ -8,29 +8,27 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use struct_field_names_as_array::FieldNamesAsArray;
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct BuildTypeBody<'a> {
+#[derive(Debug, Serialize)]
+struct BuildTypeBody<'a> {
     id: &'a str,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct BuildBody<'a> {
+struct BuildBody<'a> {
     branch_name: &'a str,
     build_type: BuildTypeBody<'a>,
 }
 
-#[derive(Debug, Serialize, Deserialize, FieldNamesAsArray)]
+#[derive(Debug, Deserialize, FieldNamesAsArray)]
 #[serde(rename_all = "camelCase")]
 #[field_names_as_array(rename_all = "camelCase")]
 pub struct Build {
     pub(crate) id: i32,
     build_type_id: String,
-    number: Option<String>,
     status: Option<String>, // SUCCESS/FAILURE/UNKNOWN
     state: String,          // queued/running/finished
     branch_name: Option<String>,
-    href: String,
     web_url: String,
     finish_on_agent_date: Option<String>,
     triggered: Triggered,
@@ -95,14 +93,10 @@ impl Build {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, FieldNamesAsArray)]
+#[derive(Debug, Deserialize, FieldNamesAsArray)]
 #[serde(rename_all = "camelCase")]
 #[field_names_as_array(rename_all = "camelCase")]
 pub struct Builds {
-    count: i32,
-    href: String,
-    next_href: Option<String>,
-    prev_href: Option<String>,
     build: Vec<Build>,
 }
 
@@ -159,7 +153,7 @@ impl<'a> Client<'a> {
         let locator = BuildLocatorBuilder::default()
             .count(limit)
             .user(author)
-            .branch(Some(&branch))
+            .branch(Some(branch))
             .default_filter(Some(false))
             .personal(Some(false))
             .build_type(

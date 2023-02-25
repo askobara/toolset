@@ -3,50 +3,42 @@ use serde::{Deserialize, Serialize};
 use crate::build_locator::{BuildLocator, BuildLocatorBuilder};
 use crate::build_type::BuildType;
 use crate::client::Client;
-use crate::normalize::select_one;
+use crate::normalize::{select_one, normalize_branch_name};
 use crate::BuildQueue;
 use anyhow::{bail, Context, Result};
 use tracing::info;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct BuildTypes {
-    count: i32,
     build_type: Vec<BuildType>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ProjectWithBuildTypes {
-    id: String,
-    name: String,
     build_types: BuildTypes,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ProjectsWithBuildTypes {
-    count: i32,
     project: Vec<ProjectWithBuildTypes>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ProjectWithProjects {
-    id: String,
-    name: String,
     projects: ProjectsWithBuildTypes,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct BuildTypeWithProject {
-    id: String,
-    name: String,
     project: ProjectWithProjects,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Build {
     id: i32,
@@ -72,24 +64,24 @@ impl Build {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct DeployBuild {
     id: i32,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct DeployBuilds {
     build: Vec<DeployBuild>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize)]
 struct BuildTypeBody<'a> {
     id: &'a str,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct DeployBody<'a> {
     branch_name: Option<&'a str>,
@@ -117,6 +109,7 @@ impl<'a> Client<'a> {
         &self,
         build_id: Option<&str>,
         env: Option<&str>,
+        branch_name: Option<&str>,
     ) -> Result<BuildQueue> {
         // TODO: deploy the last master build, when build_id is "master"
         // TODO: rerun deploy jobs
@@ -128,9 +121,14 @@ impl<'a> Client<'a> {
             locator_builder.id(id);
         } else {
             let btype = self.get_build_type_by_path().context("Current path doesn't have association with BuildType through config (or contains non-utf8 symbols)")?;
+            let branch = normalize_branch_name(branch_name, Some(&self.workdir))?;
 
             locator_builder.build_type(Some(btype.to_string()));
-            locator_builder.user(Some("current"));
+            locator_builder.branch(Some(branch));
+
+            if branch_name.is_none() {
+                locator_builder.user(Some("current"));
+            }
         }
 
         let locator = locator_builder.build()?;
