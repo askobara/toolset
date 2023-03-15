@@ -1,4 +1,4 @@
-use crate::build_type::BuildType;
+use crate::teamcity::build_type::BuildType;
 use std::convert::From;
 use std::fmt;
 

@@ -1,9 +1,9 @@
-use crate::build_locator::BuildLocatorBuilder;
-use crate::build_type_locator::BuildTypeLocator;
-use crate::client::Client;
+use crate::teamcity::build_locator::BuildLocatorBuilder;
+use crate::teamcity::build_type_locator::BuildTypeLocator;
+use crate::teamcity::client::Client;
 use crate::normalize::*;
-use crate::user::{Triggered, User};
-use crate::{ArgBuildType, BuildQueue};
+use crate::teamcity::user::{Triggered, User};
+use crate::teamcity::{ArgBuildType, BuildQueue};
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use struct_field_names_as_array::FieldNamesAsArray;

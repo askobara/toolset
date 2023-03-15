@@ -1,31 +1,14 @@
 use anyhow::{Context, Result};
 use directories::ProjectDirs;
 use serde::Deserialize;
-use std::collections::HashMap;
 use std::fs::File;
 use std::path::PathBuf;
 
 #[derive(Debug, Deserialize)]
-pub struct TeamcitySettings {
-    pub host: String,
-    pub auth_token: String,
-    pub build_types: HashMap<String, String>,
-}
-
-impl Default for TeamcitySettings {
-    fn default() -> Self {
-        Self {
-            host: "".to_string(),
-            auth_token: "".to_string(),
-            build_types: HashMap::new(),
-        }
-    }
-}
-
-#[derive(Debug, Deserialize)]
 pub struct Settings {
     #[serde(default)]
-    pub teamcity: TeamcitySettings,
+    pub teamcity: crate::teamcity::config::TeamcitySettings,
+    pub youtrack: crate::youtrack::config::YoutrackConfig,
 }
 
 impl Settings {

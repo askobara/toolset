@@ -1,12 +1,12 @@
 use serde::{Deserialize, Serialize};
 
-use crate::build_locator::{BuildLocator, BuildLocatorBuilder};
-use crate::build_type::BuildType;
-use crate::client::Client;
+use crate::teamcity::build_locator::{BuildLocator, BuildLocatorBuilder};
+use crate::teamcity::build_type::BuildType;
+use crate::teamcity::client::Client;
 use crate::normalize::{select_one, normalize_branch_name};
-use crate::BuildQueue;
+use crate::teamcity::BuildQueue;
 use anyhow::{bail, Context, Result};
-use tracing::info;
+use tracing::debug;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -134,7 +134,7 @@ impl<'a> Client<'a> {
         let locator = locator_builder.build()?;
         let build = self.get_last_build(&locator).await?;
 
-        info!("#{} {} {}", build.id, build.build_type_id, build.number);
+        debug!("#{} {} {}", build.id, build.build_type_id, build.number);
 
         let selected_build_type = select_one(build.build_types(), env)?;
 

@@ -1,9 +1,9 @@
 use crate::normalize::*;
-use crate::settings::TeamcitySettings;
+use crate::teamcity::config::TeamcitySettings;
 use anyhow::{Context, Result};
 use reqwest::header;
 use std::path::{Path, PathBuf};
-use tracing::info;
+use tracing::debug;
 use colored_json::to_colored_json_auto;
 
 pub struct Client<'a> {
@@ -37,7 +37,7 @@ impl<'a> Client<'a> {
         #[cfg(windows)]
         let _enabled = colored_json::enable_ansi_support();
 
-        info!("{u}\n{}", serde_json::to_value(&body).and_then(|v| to_colored_json_auto(&v))?);
+        debug!("{u}\n{}", serde_json::to_value(&body).and_then(|v| to_colored_json_auto(&v))?);
 
         self
             .http_client
@@ -60,7 +60,7 @@ impl<'a> Client<'a> {
             .and_then(|u| u.join(&url.into()))
             .map_err(anyhow::Error::new)?;
 
-        info!("{u}");
+        debug!("{u}");
 
         self
             .http_client

@@ -7,7 +7,6 @@ extern crate derive_builder;
 extern crate skim;
 extern crate colored_json;
 
-use crate::user::Triggered;
 use anyhow::Result;
 use arboard::Clipboard;
 use clap::{Command, CommandFactory, Parser, Subcommand};
@@ -15,20 +14,15 @@ use clap_complete::{generate, Generator, Shell};
 use console::style;
 use prettytable::format::{FormatBuilder, LinePosition, LineSeparator, TableFormat};
 use prettytable::Table;
-use serde::{Deserialize, Serialize};
 use std::io;
 
-mod build;
-mod build_locator;
-mod build_type;
-mod build_type_locator;
-mod client;
-mod deploy;
 mod normalize;
 mod settings;
-mod user;
+mod teamcity;
+mod youtrack;
 
 use crate::settings::*;
+use crate::teamcity::ArgBuildType;
 
 lazy_static! {
     static ref TABLE_FORMAT: TableFormat = FormatBuilder::new()
@@ -51,36 +45,6 @@ struct Cli {
     workdir: Option<std::path::PathBuf>,
     #[command(subcommand)]
     command: Option<Commands>,
-}
-
-#[derive(Debug, Clone)]
-pub enum ArgBuildType {
-    Build,
-    Deploy,
-    Any,
-    Custom(String),
-}
-
-impl std::convert::From<&str> for ArgBuildType {
-    fn from(s: &str) -> Self {
-        match s.to_ascii_lowercase().as_str() {
-            "build" | "b" => ArgBuildType::Build,
-            "deploy" | "d" => ArgBuildType::Deploy,
-            "any" => ArgBuildType::Any,
-            custom => ArgBuildType::Custom(custom.to_string()),
-        }
-    }
-}
-
-impl std::convert::From<ArgBuildType> for String {
-    fn from(v: ArgBuildType) -> Self {
-        match v {
-            ArgBuildType::Build => "build".into(),
-            ArgBuildType::Deploy => "deploy".into(),
-            ArgBuildType::Any => "any".into(),
-            ArgBuildType::Custom(custom) => custom,
-        }
-    }
 }
 
 #[derive(Debug, Subcommand)]
@@ -125,22 +89,12 @@ enum Commands {
     },
 
     #[command()]
-    Init {},
-}
+    BranchName {
+        issue_id: String
+    },
 
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct BuildQueue {
-    id: i32,
-    build_type_id: String,
-    state: String,
-    branch_name: Option<String>,
-    href: String,
-    web_url: String,
-    // build_type: BuildType,
-    wait_reason: String,
-    queued_date: String,
-    triggered: Triggered,
+    #[command()]
+    Init {},
 }
 
 fn print_completions<G: Generator>(gen: G, cmd: &mut Command) {
@@ -161,7 +115,7 @@ async fn main() -> Result<()> {
         return Ok(());
     } else if let Some(command) = cli.command {
         let config = Settings::new()?;
-        let client = client::Client::new(&config.teamcity, cli.workdir.as_deref())?;
+        let client = teamcity::client::Client::new(&config.teamcity, cli.workdir.as_deref())?;
 
         match command {
             Commands::RunBuild { branch_name } => {
@@ -259,6 +213,14 @@ async fn main() -> Result<()> {
 
             Commands::Init {} => {
                 unimplemented!()
+            }
+
+            Commands::BranchName { issue_id } => {
+                let yt_client = crate::youtrack::client::Client::new(&config.youtrack, None)?;
+
+                let issue = yt_client.get_issue_by_id(&issue_id).await?;
+
+                println!("{}:{}", issue.as_local_branch_name(), issue.as_remote_branch_name());
             }
         }
     }
