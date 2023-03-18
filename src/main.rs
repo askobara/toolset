@@ -115,7 +115,9 @@ async fn main() -> Result<()> {
         return Ok(());
     } else if let Some(command) = cli.command {
         let config = Settings::new()?;
-        let client = teamcity::client::Client::new(&config.teamcity, cli.workdir.as_deref())?;
+
+        let repo = normalize::find_a_repo(cli.workdir.as_deref())?;
+        let client = teamcity::client::Client::new(&config.teamcity, &repo)?;
 
         match command {
             Commands::RunBuild { branch_name } => {
@@ -220,7 +222,7 @@ async fn main() -> Result<()> {
 
                 let issue = yt_client.get_issue_by_id(&issue_id).await?;
 
-                println!("{}:{}", issue.as_local_branch_name(), issue.as_remote_branch_name());
+                println!("{}", issue.as_local_branch_name());
             }
         }
     }

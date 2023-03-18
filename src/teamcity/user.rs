@@ -38,7 +38,7 @@ pub struct Users {
     pub(crate) user: Vec<User>,
 }
 
-impl<'a> Client<'a> {
+impl<'a, 'repo> Client<'a, 'repo> {
     pub async fn user_list(&self) -> Result<Users> {
         let fields = normalize_field_names(Users::FIELD_NAMES_AS_ARRAY).replace(
             "user",

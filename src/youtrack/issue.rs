@@ -1,6 +1,6 @@
+use crate::youtrack::client::Client;
 use anyhow::Result;
 use serde::Deserialize;
-use crate::youtrack::client::Client;
 use std::borrow::Cow;
 
 #[derive(Debug, Deserialize)]
@@ -28,23 +28,25 @@ impl IssueShort {
 
 impl<'a> Client<'a> {
     pub async fn get_issue_by_id(&self, id: &str) -> Result<IssueShort> {
-        self.get(format!("/api/issues/{id}?fields=idReadable,summary")).await
+        self.get(format!("/api/issues/{id}?fields=idReadable,summary"))
+            .await
     }
 }
 
 fn normalize_str_as_branch_name(str: &str) -> String {
     let cb = |ref c| !char::is_ascii_alphanumeric(c);
-    let result = str.trim_matches(cb).chars().fold(String::new(), |mut acc, c| {
-        if !cb(c) {
-            acc.push(c);
-        } else if !acc.ends_with("-") {
-            acc.push('-');
-        }
 
-        acc
-    });
+    str.trim_matches(cb)
+        .chars()
+        .fold(String::with_capacity(str.len()), |mut acc, c| {
+            if !cb(c) {
+                acc.push(c);
+            } else if !acc.ends_with("-") {
+                acc.push('-');
+            }
 
-    result
+            acc
+        })
 }
 
 #[cfg(test)]

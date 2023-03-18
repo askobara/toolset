@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use skim::prelude::*;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 pub fn normalize_path(path: Option<&Path>) -> std::io::Result<PathBuf> {
     match path {
@@ -9,12 +10,11 @@ pub fn normalize_path(path: Option<&Path>) -> std::io::Result<PathBuf> {
     }
 }
 
-pub fn normalize_branch_name(branch_name: Option<&str>, path: Option<&Path>) -> Result<String> {
+pub fn normalize_branch_name(branch_name: Option<&str>, repo: &Repo) -> Result<String> {
     match branch_name {
         Some(bn) => Ok(bn.into()),
         None => {
-            let p = normalize_path(path)?;
-            let repo = git2::Repository::discover(p)?;
+            let repo = repo.lock().unwrap();
             let head = repo.head()?;
 
             let refname = head.name().context("unable to get a branch name due to non-utf8 symbols")?;
@@ -111,4 +111,13 @@ where
         .first()
         .cloned()
         .context("No item was selected")
+}
+
+pub type Repo = std::sync::Arc<std::sync::Mutex<git2::Repository>>;
+
+pub fn find_a_repo(path: Option<&std::path::Path>) -> Result<Repo> {
+    let path = normalize_path(path)?;
+    let repo = git2::Repository::discover(path)?;
+
+    Ok(Arc::new(Mutex::new(repo)))
 }

@@ -2,18 +2,18 @@ use crate::normalize::*;
 use crate::teamcity::config::TeamcitySettings;
 use anyhow::{Context, Result};
 use reqwest::header;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use tracing::debug;
 use colored_json::to_colored_json_auto;
 
-pub struct Client<'a> {
+pub struct Client<'a, 'repo> {
     pub(crate) http_client: reqwest::Client,
-    pub(crate) workdir: PathBuf,
+    pub(crate) repo: &'repo Repo,
     settings: &'a TeamcitySettings,
 }
 
-impl<'a> Client<'a> {
-    pub fn new(settings: &'a TeamcitySettings, workdir: Option<&Path>) -> Result<Self> {
+impl<'a, 'repo> Client<'a, 'repo> {
+    pub fn new(settings: &'a TeamcitySettings, repo: &'repo Repo) -> Result<Self> {
         let http_client = reqwest::Client::builder()
             .default_headers(Self::default_headers(settings)?)
             .build()?;
@@ -21,7 +21,7 @@ impl<'a> Client<'a> {
         Ok(Self {
             http_client,
             settings,
-            workdir: normalize_path(workdir)?,
+            repo
         })
     }
 
@@ -95,7 +95,7 @@ impl<'a> Client<'a> {
     }
 
     pub fn get_build_type_by_path(&self) -> Result<&str> {
-        let repo = git2::Repository::discover(&self.workdir)?;
+        let repo = self.repo.lock().unwrap();
         let remote = repo.find_remote("origin")?;
         let url = remote.url().context("No url for origin")?;
         let file_name = Path::new(url)

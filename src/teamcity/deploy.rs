@@ -1,7 +1,6 @@
 use serde::{Deserialize, Serialize};
 
 use crate::teamcity::build_locator::{BuildLocator, BuildLocatorBuilder};
-use crate::teamcity::build_type::BuildType;
 use crate::teamcity::client::Client;
 use crate::normalize::{select_one, normalize_branch_name};
 use crate::teamcity::BuildQueue;
@@ -10,58 +9,15 @@ use tracing::debug;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct BuildTypes {
-    build_type: Vec<BuildType>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ProjectWithBuildTypes {
-    build_types: BuildTypes,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ProjectsWithBuildTypes {
-    project: Vec<ProjectWithBuildTypes>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ProjectWithProjects {
-    projects: ProjectsWithBuildTypes,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct BuildTypeWithProject {
-    project: ProjectWithProjects,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
 struct Build {
     id: i32,
     build_type_id: String,
     branch_name: Option<String>,
     number: String,
-    build_type: BuildTypeWithProject,
     /// queued/running/finished
     state: String,
     /// SUCCESS/FAILURE/UNKNOWN
     status: Option<String>,
-}
-
-impl Build {
-    fn build_types(&self) -> Vec<BuildType> {
-        self.build_type
-            .project
-            .projects
-            .project
-            .iter()
-            .flat_map(|prj| prj.build_types.build_type.iter().map(ToOwned::to_owned))
-            .collect::<Vec<_>>()
-    }
 }
 
 #[derive(Debug, Serialize)]
@@ -90,10 +46,10 @@ struct DeployBody<'a> {
     snapshot_dependencies: DeployBuilds,
 }
 
-impl<'a> Client<'a> {
+impl<'a, 'repo> Client<'a, 'repo> {
     async fn get_last_build(&self, locator: &BuildLocator<'_>) -> Result<Build> {
         let url = format!(
-            "/app/rest/builds/{locator}?fields=id,buildTypeId,branchName,number,state,status,buildType:(id,name,project:(id,name,projects:(count,project:(id,name,buildTypes:(count,buildType)))))",
+            "/app/rest/builds/{locator}?fields=id,buildTypeId,branchName,number,state,status",
         );
 
         let build: Build = self.get(url).await?;
@@ -121,7 +77,7 @@ impl<'a> Client<'a> {
             locator_builder.id(id);
         } else {
             let btype = self.get_build_type_by_path().context("Current path doesn't have association with BuildType through config (or contains non-utf8 symbols)")?;
-            let branch = normalize_branch_name(branch_name, Some(&self.workdir))?;
+            let branch = normalize_branch_name(branch_name, &self.repo)?;
 
             locator_builder.build_type(Some(btype.to_string()));
             locator_builder.branch(Some(branch));
@@ -135,8 +91,9 @@ impl<'a> Client<'a> {
         let build = self.get_last_build(&locator).await?;
 
         debug!("#{} {} {}", build.id, build.build_type_id, build.number);
+        let deploments = self.deployment_list(&build.build_type_id).await?;
 
-        let selected_build_type = select_one(build.build_types(), env)?;
+        let selected_build_type = select_one(deploments.build_type, env)?;
 
         let body = DeployBody {
             branch_name: build.branch_name.as_deref(),

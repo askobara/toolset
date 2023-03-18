@@ -118,7 +118,7 @@ impl<'a> IntoIterator for &'a Builds {
     }
 }
 
-impl<'a> Client<'a> {
+impl<'a, 'repo> Client<'a, 'repo> {
     pub async fn run_build(
         &self,
         build_type: Option<&str>,
@@ -129,7 +129,7 @@ impl<'a> Client<'a> {
             .unwrap();
         // .context("Current path doesn't have association with BuildType through config (or contains non-utf8 symbols)")
 
-        let branch = normalize_branch_name(branch_name, Some(&self.workdir))?;
+        let branch = normalize_branch_name(branch_name, &self.repo)?;
 
         let body = BuildBody {
             build_type: BuildTypeBody { id: build_type },
@@ -148,7 +148,7 @@ impl<'a> Client<'a> {
         author: Option<&str>,
         limit: Option<u8>,
     ) -> Result<Builds> {
-        let branch = normalize_branch_name(branch_name, Some(&self.workdir))?;
+        let branch = normalize_branch_name(branch_name, &self.repo)?;
 
         let locator = BuildLocatorBuilder::default()
             .count(limit)
