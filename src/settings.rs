@@ -6,9 +6,9 @@ use std::path::PathBuf;
 
 #[derive(Debug, Deserialize)]
 pub struct Settings {
-    #[serde(default)]
     pub teamcity: crate::teamcity::config::TeamcitySettings,
     pub youtrack: crate::youtrack::config::YoutrackConfig,
+    // pub gitlab: crate::gitlab::Config,
 }
 
 impl Settings {

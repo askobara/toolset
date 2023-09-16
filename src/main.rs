@@ -4,11 +4,10 @@ extern crate lazy_static;
 extern crate prettytable;
 #[macro_use]
 extern crate derive_builder;
-extern crate skim;
 extern crate colored_json;
+extern crate skim;
 
 use anyhow::Result;
-use arboard::Clipboard;
 use clap::{Command, CommandFactory, Parser, Subcommand};
 use clap_complete::{generate, Generator, Shell};
 use console::style;
@@ -16,6 +15,8 @@ use prettytable::format::{FormatBuilder, LinePosition, LineSeparator, TableForma
 use prettytable::Table;
 use std::io;
 
+mod core;
+mod gitlab;
 mod normalize;
 mod settings;
 mod teamcity;
@@ -89,9 +90,7 @@ enum Commands {
     },
 
     #[command()]
-    BranchName {
-        issue_id: String
-    },
+    BranchName { issue_id: String },
 
     #[command()]
     Init {},
@@ -117,6 +116,7 @@ async fn main() -> Result<()> {
         let config = Settings::new()?;
 
         let repo = normalize::find_a_repo(cli.workdir.as_deref())?;
+        // let branch = normalize::normalize_branch_name(branch_name, &repo)?;
         let client = teamcity::client::Client::new(&config.teamcity, &repo)?;
 
         match command {
@@ -125,14 +125,15 @@ async fn main() -> Result<()> {
 
                 println!("{}", style(&build.web_url).bold().blue());
 
-                let mut clipboard = Clipboard::new()?;
-                if clipboard.set_text(build.web_url).is_ok() {
-                    // FIXME: x11 will clear the clipboard when program is exit
-                    println!("{}", style("✔ copied!").green().italic());
-                }
+                let _ = dump_to_clipboard(&build.web_url);
+                println!("{}", style("✔ copied!").green().italic());
             }
 
-            Commands::RunDeploy { build_id, env, branch_name } => {
+            Commands::RunDeploy {
+                build_id,
+                env,
+                branch_name,
+            } => {
                 let response = client
                     .run_deploy(build_id.as_deref(), env.as_deref(), branch_name.as_deref())
                     .await?;
@@ -218,7 +219,7 @@ async fn main() -> Result<()> {
             }
 
             Commands::BranchName { issue_id } => {
-                let yt_client = crate::youtrack::client::Client::new(&config.youtrack, None)?;
+                let yt_client = crate::youtrack::client::Client::new(&config.youtrack)?;
 
                 let issue = yt_client.get_issue_by_id(&issue_id).await?;
 
@@ -226,6 +227,26 @@ async fn main() -> Result<()> {
             }
         }
     }
+
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+pub fn dump_to_clipboard(value: &str) -> Result<()> {
+    use std::{process::{Command, Stdio}, io::{Error, ErrorKind}};
+
+    Command::new("echo")
+        .arg(value)
+        .stdout(Stdio::piped())
+        .spawn()
+        .and_then(|echo| echo.stdout.ok_or(Error::new(ErrorKind::Other, "No stdout")))
+        .and_then(|stdout|
+            Command::new("xclip")
+                .stdin(stdout)
+                .args(["-selection", "c"])
+                .status()
+        )
+        .map_err(|e| anyhow::format_err!("Failed to copy value to clipboard: {}", e))?;
 
     Ok(())
 }

@@ -4,7 +4,7 @@ use crate::teamcity::build_locator::{BuildLocator, BuildLocatorBuilder};
 use crate::teamcity::client::Client;
 use crate::normalize::{select_one, normalize_branch_name};
 use crate::teamcity::BuildQueue;
-use anyhow::{bail, Context, Result};
+use anyhow::{bail, Result};
 use tracing::debug;
 
 #[derive(Debug, Deserialize)]
@@ -46,13 +46,13 @@ struct DeployBody<'a> {
     snapshot_dependencies: DeployBuilds,
 }
 
-impl<'a, 'repo> Client<'a, 'repo> {
+impl<'a> Client<'a> {
     async fn get_last_build(&self, locator: &BuildLocator<'_>) -> Result<Build> {
         let url = format!(
             "/app/rest/builds/{locator}?fields=id,buildTypeId,branchName,number,state,status",
         );
 
-        let build: Build = self.get(url).await?;
+        let build: Build = self.http_client.get(url).await?;
 
         match (build.state.as_str(), build.status.as_deref()) {
             (_, Some("FAILURE")) => bail!("Build #{id} is failed", id = build.id),
@@ -76,10 +76,9 @@ impl<'a, 'repo> Client<'a, 'repo> {
         if id.is_some() {
             locator_builder.id(id);
         } else {
-            let btype = self.get_build_type_by_path().context("Current path doesn't have association with BuildType through config (or contains non-utf8 symbols)")?;
             let branch = normalize_branch_name(branch_name, &self.repo)?;
 
-            locator_builder.build_type(Some(btype.to_string()));
+            locator_builder.build_type(self.build_type);
             locator_builder.branch(Some(branch));
 
             if branch_name.is_none() {
@@ -105,7 +104,7 @@ impl<'a, 'repo> Client<'a, 'repo> {
             },
         };
 
-        let response: BuildQueue = self.post("/app/rest/buildQueue", &body).await?;
+        let response: BuildQueue = self.http_client.post("/app/rest/buildQueue", &body).await?;
 
         Ok(response)
     }

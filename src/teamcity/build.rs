@@ -118,14 +118,14 @@ impl<'a> IntoIterator for &'a Builds {
     }
 }
 
-impl<'a, 'repo> Client<'a, 'repo> {
+impl<'a> Client<'a> {
     pub async fn run_build(
         &self,
         build_type: Option<&str>,
         branch_name: Option<&str>,
     ) -> Result<BuildQueue> {
         let build_type = build_type
-            .or_else(|| self.get_build_type_by_path().ok())
+            .or_else(|| self.build_type)
             .unwrap();
         // .context("Current path doesn't have association with BuildType through config (or contains non-utf8 symbols)")
 
@@ -136,7 +136,7 @@ impl<'a, 'repo> Client<'a, 'repo> {
             branch_name: &branch,
         };
 
-        let response: BuildQueue = self.post("/app/rest/buildQueue", &body).await?;
+        let response: BuildQueue = self.http_client.post("/app/rest/buildQueue", &body).await?;
 
         Ok(response)
     }
@@ -159,7 +159,7 @@ impl<'a, 'repo> Client<'a, 'repo> {
             .build_type(
                 match build_type
                     .cloned()
-                    .or_else(|| self.get_build_type_by_path().ok().map(Into::into))
+                    .or_else(|| self.build_type.map(Into::into))
                     .unwrap()
                 {
                     ArgBuildType::Build => Some(BuildTypeLocator::only_builds()),
@@ -176,19 +176,19 @@ impl<'a, 'repo> Client<'a, 'repo> {
             )
             .build()?;
 
-        let fields = normalize_field_names(Builds::FIELD_NAMES_AS_ARRAY).replace(
+        let fields = normalize_field_names(&Builds::FIELD_NAMES_AS_ARRAY).replace(
             "build",
             &format!(
                 "build({})",
-                normalize_field_names(Build::FIELD_NAMES_AS_ARRAY).replace(
+                normalize_field_names(&Build::FIELD_NAMES_AS_ARRAY).replace(
                     "triggered",
                     &format!(
                         "triggered({})",
-                        normalize_field_names(Triggered::FIELD_NAMES_AS_ARRAY).replace(
+                        normalize_field_names(&Triggered::FIELD_NAMES_AS_ARRAY).replace(
                             "user",
                             &format!(
                                 "user({})",
-                                normalize_field_names(User::FIELD_NAMES_AS_ARRAY)
+                                normalize_field_names(&User::FIELD_NAMES_AS_ARRAY)
                             )
                         )
                     )
@@ -197,7 +197,7 @@ impl<'a, 'repo> Client<'a, 'repo> {
         );
 
         let url = format!("/app/rest/builds?locator={locator}&fields={fields}");
-        let response: Builds = self.get(url).await?;
+        let response: Builds = self.http_client.get(url).await?;
 
         Ok(response)
     }

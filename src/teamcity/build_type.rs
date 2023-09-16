@@ -43,33 +43,33 @@ pub struct BuildTypes {
     pub(crate) build_type: Vec<BuildType>,
 }
 
-impl<'a, 'repo> Client<'a, 'repo> {
+impl<'a> Client<'a> {
     pub async fn build_type_list(&self) -> Result<BuildTypes> {
-        let fields = normalize_field_names(BuildTypes::FIELD_NAMES_AS_ARRAY).replace(
+        let fields = normalize_field_names(&BuildTypes::FIELD_NAMES_AS_ARRAY).replace(
             "buildType",
             &format!(
                 "buildType({})",
-                normalize_field_names(BuildType::FIELD_NAMES_AS_ARRAY)
+                normalize_field_names(&BuildType::FIELD_NAMES_AS_ARRAY)
             ),
         );
 
         let url = format!("/app/rest/buildTypes?fields={fields}");
-        let response: BuildTypes = self.get(url).await?;
+        let response: BuildTypes = self.http_client.get(url).await?;
 
         Ok(response)
     }
 
     pub async fn deployment_list(&self, build_type_id: &str) -> Result<BuildTypes> {
-        let fields = normalize_field_names(BuildTypes::FIELD_NAMES_AS_ARRAY).replace(
+        let fields = normalize_field_names(&BuildTypes::FIELD_NAMES_AS_ARRAY).replace(
             "buildType",
             &format!(
                 "buildType({})",
-                normalize_field_names(BuildType::FIELD_NAMES_AS_ARRAY)
+                normalize_field_names(&BuildType::FIELD_NAMES_AS_ARRAY)
             ),
         );
 
         let url = format!("/app/rest/buildTypes?locator=type:deployment,project(archived:false),snapshotDependency(from:(id:{build_type_id}))&fields={fields}");
-        let response: BuildTypes = self.get(url).await?;
+        let response: BuildTypes = self.http_client.get(url).await?;
 
         Ok(response)
     }

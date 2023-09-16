@@ -1,101 +1,31 @@
 use crate::normalize::*;
 use crate::teamcity::config::TeamcitySettings;
 use anyhow::{Context, Result};
-use reqwest::header;
 use std::path::Path;
-use tracing::debug;
-use colored_json::to_colored_json_auto;
 
-pub struct Client<'a, 'repo> {
-    pub(crate) http_client: reqwest::Client,
-    pub(crate) repo: &'repo Repo,
-    settings: &'a TeamcitySettings,
+pub struct Client<'a> {
+    pub http_client: crate::core::client::Client<'a>,
+    config: &'a TeamcitySettings,
+    pub build_type: Option<&'a str>,
+    pub branch_name: Option<String>,
+    pub repo: &'a Repo,
 }
 
-impl<'a, 'repo> Client<'a, 'repo> {
-    pub fn new(settings: &'a TeamcitySettings, repo: &'repo Repo) -> Result<Self> {
-        let http_client = reqwest::Client::builder()
-            .default_headers(Self::default_headers(settings)?)
-            .build()?;
+impl<'a> Client<'a> {
+    pub fn new(config: &'a TeamcitySettings, repo: &'a Repo) -> Result<Self> {
+        let build_type = Self::default_build_type(repo, config).ok();
 
         Ok(Self {
-            http_client,
-            settings,
-            repo
+            http_client: crate::core::client::Client::new(&config.client)?,
+            config,
+            build_type,
+            branch_name: normalize_branch_name(None, repo).ok(),
+            repo,
         })
     }
 
-    pub async fn post<B, R>(&self, url: &str, body: &B) -> Result<R>
-    where
-        B: serde::Serialize + std::fmt::Debug + ?Sized,
-        R: serde::de::DeserializeOwned
-    {
-        let u = reqwest::Url::parse(&self.settings.host)
-            .and_then(|u| u.join(url))
-            .map_err(anyhow::Error::new)?;
-
-        #[cfg(windows)]
-        let _enabled = colored_json::enable_ansi_support();
-
-        debug!("{u}\n{}", serde_json::to_value(&body).and_then(|v| to_colored_json_auto(&v))?);
-
-        self
-            .http_client
-            .post(u)
-            .json(&body)
-            .send()
-            .await?
-            .error_for_status()?
-            .json()
-            .await
-            .map_err(anyhow::Error::new)
-    }
-
-    pub async fn get<U, R>(&self, url: U) -> Result<R>
-    where
-        U: Into<String>,
-        R: serde::de::DeserializeOwned
-    {
-        let u = reqwest::Url::parse(&self.settings.host)
-            .and_then(|u| u.join(&url.into()))
-            .map_err(anyhow::Error::new)?;
-
-        debug!("{u}");
-
-        self
-            .http_client
-            .get(u)
-            .send()
-            .await?
-            .error_for_status()?
-            .json()
-            .await
-            .map_err(anyhow::Error::new)
-    }
-
-    fn default_headers(settings: &TeamcitySettings) -> Result<header::HeaderMap> {
-        let mut headers = header::HeaderMap::new();
-
-        let token = format!("Bearer {}", settings.auth_token.clone());
-        // Consider marking security-sensitive headers with `set_sensitive`.
-        let mut auth_value = header::HeaderValue::from_str(&token)?;
-        auth_value.set_sensitive(true);
-        headers.insert(header::AUTHORIZATION, auth_value);
-
-        headers.insert(
-            header::CONTENT_TYPE,
-            header::HeaderValue::from_static("application/json"),
-        );
-        headers.insert(
-            header::ACCEPT,
-            header::HeaderValue::from_static("application/json"),
-        );
-
-        Ok(headers)
-    }
-
-    pub fn get_build_type_by_path(&self) -> Result<&str> {
-        let repo = self.repo.lock().unwrap();
+    fn default_build_type(repo: &Repo, config: &'a TeamcitySettings) -> Result<&'a str> {
+        let repo = repo.lock().unwrap();
         let remote = repo.find_remote("origin")?;
         let url = remote.url().context("No url for origin")?;
         let file_name = Path::new(url)
@@ -104,13 +34,7 @@ impl<'a, 'repo> Client<'a, 'repo> {
             .map(|s| s.to_owned())
             .context("Cannot get repo name")?;
 
-        // if !self.build_types.contains_key(&file_name) {
-        //     let bt = self.build_type_list().await?;
-        //     let r = crate::build_type::select_build_type(&bt.build_type, None)?;
-        //     self.build_types.insert(file_name.clone(), r.id);
-        // }
-
-        self.settings
+        config
             .build_types
             .get(&file_name)
             .map(|s| s.as_str())

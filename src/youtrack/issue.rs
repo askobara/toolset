@@ -28,7 +28,7 @@ impl IssueShort {
 
 impl<'a> Client<'a> {
     pub async fn get_issue_by_id(&self, id: &str) -> Result<IssueShort> {
-        self.get(format!("/api/issues/{id}?fields=idReadable,summary"))
+        self.http_client.get(format!("/api/issues/{id}?fields=idReadable,summary"))
             .await
     }
 }
