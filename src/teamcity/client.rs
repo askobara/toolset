@@ -1,7 +1,6 @@
 use crate::normalize::*;
 use crate::teamcity::config::TeamcitySettings;
 use anyhow::{Context, Result};
-use std::path::Path;
 
 pub struct Client<'a> {
     pub http_client: crate::core::client::Client<'a>,
@@ -25,14 +24,7 @@ impl<'a> Client<'a> {
     }
 
     fn default_build_type(repo: &Repo, config: &'a TeamcitySettings) -> Result<&'a str> {
-        let repo = repo.lock().unwrap();
-        let remote = repo.find_remote("origin")?;
-        let url = remote.url().context("No url for origin")?;
-        let file_name = Path::new(url)
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .map(|s| s.to_owned())
-            .context("Cannot get repo name")?;
+        let file_name = get_repo_name(repo, None)?;
 
         config
             .build_types

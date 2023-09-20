@@ -7,12 +7,14 @@ extern crate derive_builder;
 extern crate colored_json;
 extern crate skim;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::{Command, CommandFactory, Parser, Subcommand};
 use clap_complete::{generate, Generator, Shell};
 use console::style;
 use prettytable::format::{FormatBuilder, LinePosition, LineSeparator, TableFormat};
 use prettytable::Table;
+use clap_verbosity_flag::Verbosity;
+use tracing_log::AsTrace;
 use std::io;
 
 mod core;
@@ -24,6 +26,7 @@ mod youtrack;
 
 use crate::settings::*;
 use crate::teamcity::ArgBuildType;
+use crate::youtrack::issue::BranchNameWithIssueId;
 
 lazy_static! {
     static ref TABLE_FORMAT: TableFormat = FormatBuilder::new()
@@ -44,6 +47,8 @@ struct Cli {
     generator: Option<Shell>,
     #[arg(long, value_hint = clap::ValueHint::DirPath)]
     workdir: Option<std::path::PathBuf>,
+    #[command(flatten)]
+    verbose: Verbosity,
     #[command(subcommand)]
     command: Option<Commands>,
 }
@@ -93,6 +98,12 @@ enum Commands {
     BranchName { issue_id: String },
 
     #[command()]
+    PullRequests {},
+
+    #[command()]
+    CreatePullRequest {},
+
+    #[command()]
     Init {},
 }
 
@@ -102,9 +113,11 @@ fn print_completions<G: Generator>(gen: G, cmd: &mut Command) {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    tracing_subscriber::fmt::init();
-
     let cli = Cli::parse();
+
+    tracing_subscriber::fmt()
+        .with_max_level(cli.verbose.log_level_filter().as_trace())
+        .init();
 
     if let Some(generator) = cli.generator {
         let mut cmd = Cli::command();
@@ -116,7 +129,6 @@ async fn main() -> Result<()> {
         let config = Settings::new()?;
 
         let repo = normalize::find_a_repo(cli.workdir.as_deref())?;
-        // let branch = normalize::normalize_branch_name(branch_name, &repo)?;
         let client = teamcity::client::Client::new(&config.teamcity, &repo)?;
 
         match command {
@@ -224,6 +236,78 @@ async fn main() -> Result<()> {
                 let issue = yt_client.get_issue_by_id(&issue_id).await?;
 
                 println!("{}", issue.as_local_branch_name());
+            }
+
+            Commands::PullRequests {  } => {
+                let gitlab_client = crate::gitlab::Client::new(&config.gitlab)?;
+                let branch_name = normalize::normalize_branch_name(None, &repo)?;
+
+                let prs = gitlab_client.get_pull_requests(&branch_name, crate::gitlab::pull_request::State::All).await?;
+
+                for pr in &prs {
+                    let msg = format!("⚫ {}\n  {}", pr.title, pr.web_url);
+                    println!("{msg}");
+                }
+            }
+
+            Commands::CreatePullRequest {  } => {
+                let gitlab_client = crate::gitlab::Client::new(&config.gitlab)?;
+                let mut bn = normalize::get_branch_name_meta(None, &repo)?;
+
+                if bn.upsteam_name.is_none() {
+                    let remote_branch_name = bn.local_name.parse::<BranchNameWithIssueId>()
+                        .map(|b| b.short_name())
+                        .unwrap_or(bn.local_name.clone());
+
+                    bn.upsteam_name.replace(remote_branch_name);
+                }
+
+                dbg!(&bn);
+
+                let commited = {
+                    let r = repo.lock().unwrap();
+                    let mut revwalk = r.revwalk()?;
+                    revwalk.push_range("origin/master..HEAD")?;
+
+                    revwalk.count() > 0
+                };
+
+                if !commited {
+                    anyhow::bail!("Commit first!");
+                }
+
+                let basename = normalize::get_repo_name(&repo, None)?;
+                let prjs = gitlab_client.find_project_by_name(&basename).await?;
+                let prj = prjs.first().context("No prj found")?;
+                println!("{:?}", prj);
+
+                {
+                    let r = repo.lock().unwrap();
+                    let mut b = r.find_branch(&bn.local_name.clone(), git2::BranchType::Local)?;
+                    b.set_upstream(Some(&bn.upsteam_name.clone().unwrap()))?;
+
+                    let mut callbacks = git2::RemoteCallbacks::new();
+                    callbacks.credentials(|_url, username_from_url, _allowed_types| {
+                        git2::Cred::ssh_key(
+                            username_from_url.unwrap(),
+                            None,
+                            std::path::Path::new(
+                                &format!("{}/.ssh/id_rsa", std::env::var("HOME").unwrap())
+                            ),
+                            None,
+                        )
+                    });
+                    let mut options = git2::PushOptions::new();
+                    options.remote_callbacks(callbacks);
+
+                    r.find_remote("origin")?.push(&[&bn.refname], Some(&mut options))?;
+                };
+
+                let r = gitlab_client.create_pull_request(&prj, &bn).await?;
+                dbg!(&r);
+
+                let _ = dump_to_clipboard(&r.web_url.as_str());
+                println!("{}", style("✔ copied!").green().italic());
             }
         }
     }

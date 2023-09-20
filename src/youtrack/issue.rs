@@ -2,12 +2,32 @@ use crate::youtrack::client::Client;
 use anyhow::Result;
 use serde::Deserialize;
 use std::borrow::Cow;
+use recap::Recap;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct IssueShort {
     id_readable: String,
     summary: String,
+}
+
+#[derive(Debug, Deserialize, Recap)]
+#[recap(regex = r#"(?x)
+    (?P<project_id>[A-Z]+)
+    -
+    (?P<number>\d+)
+    (?:-(?P<slug>[\w-]+))?
+  "#)]
+pub struct BranchNameWithIssueId {
+    project_id: String,
+    number: u32,
+    slug: Option<String>,
+}
+
+impl BranchNameWithIssueId {
+    pub fn short_name(&self) -> String {
+        format!("{}-{}", &self.project_id, &self.number)
+    }
 }
 
 impl IssueShort {

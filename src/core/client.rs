@@ -1,6 +1,6 @@
 use anyhow::Result;
 use reqwest::header;
-use tracing::debug;
+use tracing::info;
 use super::config::Config;
 use colored_json::to_colored_json_auto;
 
@@ -49,7 +49,7 @@ impl<'a> Client<'a> {
     {
         let u = self.base_url.parse(&url.into()).map_err(anyhow::Error::new)?;
 
-        debug!("GET {u}");
+        info!("GET {u}");
 
         self
             .http_client
@@ -74,7 +74,7 @@ impl<'a> Client<'a> {
         #[cfg(windows)]
         let _enabled = colored_json::enable_ansi_support();
 
-        debug!("POST {u}\n{}", serde_json::to_value(&body).and_then(|v| to_colored_json_auto(&v))?);
+        info!("POST {u}\n{}", serde_json::to_value(&body).and_then(|v| to_colored_json_auto(&v))?);
 
         self
             .http_client

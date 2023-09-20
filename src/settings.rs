@@ -8,7 +8,7 @@ use std::path::PathBuf;
 pub struct Settings {
     pub teamcity: crate::teamcity::config::TeamcitySettings,
     pub youtrack: crate::youtrack::config::YoutrackConfig,
-    // pub gitlab: crate::gitlab::Config,
+    pub gitlab: crate::gitlab::GitlabConfig,
 }
 
 impl Settings {

@@ -1,13 +1,63 @@
 use anyhow::{Context, Result};
 use skim::prelude::*;
-use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::{
+    path::{Path, PathBuf},
+    sync::{Mutex, Arc},
+};
 
 pub fn normalize_path(path: Option<&Path>) -> std::io::Result<PathBuf> {
     match path {
         Some(p) => p.canonicalize(),
         None => std::env::current_dir(),
     }
+}
+
+#[derive(Debug)]
+pub struct BranchNameMeta {
+    pub refname: String,
+    pub local_name: String,
+    pub upsteam_name: Option<String>,
+    pub oid: git2::Oid,
+    pub summary: Option<String>,
+}
+
+pub fn get_branch_name_meta(branch_name: Option<&str>, repo: &Repo) -> Result<BranchNameMeta> {
+    match branch_name {
+        Some(_) => todo!(),
+        None => {
+            let repo = repo.lock().unwrap();
+            let head = repo.head()?;
+
+            if !head.is_branch() {
+                anyhow::bail!("HEAD is not a branch");
+            }
+
+            let oid = head.target().context("HEAD is symbolic one")?;
+            let summary = repo.find_commit(oid).ok().and_then(|c| c.summary().map(ToOwned::to_owned));
+
+            let refname = head.name().context("unable to get a branch name due to non-utf8 symbols")?;
+
+            let r: Option<String> = repo.branch_upstream_name(refname)
+                .ok()
+                .and_then(|b| b.as_str().map(ToOwned::to_owned))
+                .and_then(normalize)
+            ;
+
+            Ok(BranchNameMeta {
+                refname: refname.to_owned(),
+                local_name: normalize(refname).context("Not utf-8")?,
+                upsteam_name: r,
+                oid,
+                summary,
+            })
+        }
+    }
+}
+
+fn normalize(s: impl Into<String>) -> Option<String> {
+    Path::new(&s.into())
+        .file_stem()
+        .and_then(|s| s.to_str().map(ToOwned::to_owned))
 }
 
 pub fn normalize_branch_name(branch_name: Option<&str>, repo: &Repo) -> Result<String> {
@@ -20,19 +70,16 @@ pub fn normalize_branch_name(branch_name: Option<&str>, repo: &Repo) -> Result<S
             let refname = head.name().context("unable to get a branch name due to non-utf8 symbols")?;
 
             let r = repo.branch_upstream_name(refname)
-                .map_err(anyhow::Error::new)
-                .and_then(|b| {
-                    b.as_str()
-                        .map(String::from)
-                        .context("unable to get a branch name due to non-utf8 symbols")
-                })?
+                .ok()
+                .and_then(|b| b.as_str().map(String::from))
+                .unwrap_or(refname.to_owned())
             ;
 
             Path::new(&r)
                 .file_stem()
                 .and_then(|s| s.to_str())
-                .map(|s| s.to_owned())
-                .context("Cannot get repo name")
+                .map(ToOwned::to_owned)
+                .context("Cannot get branch name")
         }
     }
 }
@@ -113,11 +160,23 @@ where
         .context("No item was selected")
 }
 
-pub type Repo = std::sync::Arc<std::sync::Mutex<git2::Repository>>;
+pub type Repo = Arc<Mutex<git2::Repository>>;
 
-pub fn find_a_repo(path: Option<&std::path::Path>) -> Result<Repo> {
+pub fn find_a_repo(path: Option<&Path>) -> Result<Repo> {
     let path = normalize_path(path)?;
     let repo = git2::Repository::discover(path)?;
 
     Ok(Arc::new(Mutex::new(repo)))
+}
+
+pub fn get_repo_name(repo: &Repo, remote_name: Option<&str>) -> Result<String> {
+    let repo = repo.lock().unwrap();
+    let remote = repo.find_remote(remote_name.unwrap_or("origin"))?;
+    let url = remote.url().context("Remote url contains non-utf8 symbols")?;
+
+    Path::new(url)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .map(|s| s.to_owned())
+        .context("Cannot get repo name")
 }

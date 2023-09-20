@@ -1,4 +1,5 @@
-mod pull_request;
+pub mod pull_request;
+pub mod project;
 
 use anyhow::Result;
 use serde::Deserialize;
@@ -15,7 +16,6 @@ pub struct Client<'a> {
 
 impl<'a> Client<'a> {
     pub fn new(config: &'a GitlabConfig) -> Result<Self> {
-
         Ok(Self {
             http_client: crate::core::client::Client::new(&config.client)?,
             config,
