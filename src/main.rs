@@ -104,6 +104,9 @@ enum Commands {
     CreatePullRequest {},
 
     #[command()]
+    AddComment { text: String },
+
+    #[command()]
     Init {},
 }
 
@@ -245,8 +248,7 @@ async fn main() -> Result<()> {
                 let prs = gitlab_client.get_pull_requests(&branch_name, crate::gitlab::pull_request::State::All).await?;
 
                 for pr in &prs {
-                    let msg = format!("⚫ {}\n  {}", pr.title, pr.web_url);
-                    println!("{msg}");
+                    println!("{}\n- {}", pr.title, pr.web_url);
                 }
             }
 
@@ -306,6 +308,18 @@ async fn main() -> Result<()> {
 
                 let _ = dump_to_clipboard(&r.web_url.as_str());
                 println!("{}", style("✔ copied!").green().italic());
+            }
+
+            Commands::AddComment { text } => {
+                let yt_client = crate::youtrack::client::Client::new(&config.youtrack)?;
+
+                let bn = normalize::get_branch_name_meta(None, &repo)?;
+
+                let issue_id = bn.local_name.parse::<BranchNameWithIssueId>()
+                    .map(|b| b.short_name())?;
+
+                let response = yt_client.comment_create(&issue_id, &text).await?;
+                dbg!(response);
             }
         }
     }
