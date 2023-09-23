@@ -180,3 +180,27 @@ pub fn get_repo_name(repo: &Repo, remote_name: Option<&str>) -> Result<String> {
         .map(|s| s.to_owned())
         .context("Cannot get repo name")
 }
+
+pub fn get_push_options() -> git2::PushOptions<'static> {
+    let mut callbacks = git2::RemoteCallbacks::new();
+    callbacks.credentials(|_url, username_from_url, _allowed_types| {
+        git2::Cred::ssh_key(
+            username_from_url.unwrap(),
+            None,
+            std::path::Path::new(
+                &format!("{}/.ssh/id_rsa", std::env::var("HOME").unwrap())
+            ),
+            None,
+        )
+    });
+
+    callbacks.push_update_reference(|ref_name, status| {
+        dbg!(ref_name, status);
+        Ok(())
+    });
+
+    let mut options = git2::PushOptions::new();
+    options.remote_callbacks(callbacks);
+
+    options
+}

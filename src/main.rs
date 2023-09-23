@@ -252,15 +252,11 @@ async fn main() -> Result<()> {
 
             Commands::CreatePullRequest {  } => {
                 let gitlab_client = crate::gitlab::Client::new(&config.gitlab)?;
-                let mut bn = normalize::get_branch_name_meta(None, &repo)?;
+                let bn = normalize::get_branch_name_meta(None, &repo)?;
 
-                if bn.upsteam_name.is_none() {
-                    let remote_branch_name = bn.local_name.parse::<BranchNameWithIssueId>()
-                        .map(|b| b.short_name())
-                        .unwrap_or(bn.local_name.clone());
-
-                    bn.upsteam_name.replace(remote_branch_name);
-                }
+                let remote_branch_name = bn.local_name.parse::<BranchNameWithIssueId>()
+                    .map(|b| b.short_name())
+                    .unwrap_or(bn.local_name.clone());
 
                 dbg!(&bn);
 
@@ -284,23 +280,25 @@ async fn main() -> Result<()> {
                 {
                     let r = repo.lock().unwrap();
                     let mut b = r.find_branch(&bn.local_name.clone(), git2::BranchType::Local)?;
-                    b.set_upstream(Some(&bn.upsteam_name.clone().unwrap()))?;
 
-                    let mut callbacks = git2::RemoteCallbacks::new();
-                    callbacks.credentials(|_url, username_from_url, _allowed_types| {
-                        git2::Cred::ssh_key(
-                            username_from_url.unwrap(),
-                            None,
-                            std::path::Path::new(
-                                &format!("{}/.ssh/id_rsa", std::env::var("HOME").unwrap())
-                            ),
-                            None,
-                        )
-                    });
-                    let mut options = git2::PushOptions::new();
-                    options.remote_callbacks(callbacks);
 
-                    r.find_remote("origin")?.push(&[&bn.refname], Some(&mut options))?;
+                    r.reference(
+                        format!("refs/remotes/origin/{remote_branch_name}").as_str(),
+                        bn.oid,
+                        true,
+                        ""
+                    )?;
+                    b.set_upstream(Some(format!("origin/{remote_branch_name}").as_str()))?;
+                    let mut options = normalize::get_push_options();
+
+                    let name = format!("{}:refs/heads/{}", bn.refname, remote_branch_name);
+
+                    dbg!(&name);
+
+                    r.find_remote("origin")?.push(
+                        &[name.as_str()],
+                        Some(&mut options)
+                    )?;
                 };
 
                 let r = gitlab_client.create_pull_request(&prj, &bn).await?;
