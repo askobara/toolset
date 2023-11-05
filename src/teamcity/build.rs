@@ -1,7 +1,7 @@
 use crate::teamcity::build_locator::BuildLocatorBuilder;
 use crate::teamcity::build_type_locator::BuildTypeLocator;
-use crate::teamcity::client::Client;
-use crate::normalize::*;
+use crate::teamcity::Client;
+use crate::normalize::{normalize_field_names, select_many};
 use crate::teamcity::user::{Triggered, User};
 use crate::teamcity::{ArgBuildType, BuildQueue};
 use anyhow::Result;
@@ -129,7 +129,7 @@ impl<'a> Client<'a> {
             .unwrap();
         // .context("Current path doesn't have association with BuildType through config (or contains non-utf8 symbols)")
 
-        let branch = normalize_branch_name(branch_name, &self.repo)?;
+        let branch = self.repo.normalize_branch_name(branch_name)?;
 
         let body = BuildBody {
             build_type: BuildTypeBody { id: build_type },
@@ -148,7 +148,7 @@ impl<'a> Client<'a> {
         author: Option<&str>,
         limit: Option<u8>,
     ) -> Result<Builds> {
-        let branch = normalize_branch_name(branch_name, &self.repo)?;
+        let branch = self.repo.normalize_branch_name(branch_name)?;
 
         let locator = BuildLocatorBuilder::default()
             .count(limit)

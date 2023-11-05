@@ -18,6 +18,7 @@ use tracing_log::AsTrace;
 use std::io;
 
 mod core;
+mod repo;
 mod gitlab;
 mod normalize;
 mod settings;
@@ -131,8 +132,8 @@ async fn main() -> Result<()> {
     } else if let Some(command) = cli.command {
         let config = Settings::new()?;
 
-        let repo = normalize::find_a_repo(cli.workdir.as_deref())?;
-        let client = teamcity::client::Client::new(&config.teamcity, &repo)?;
+        let repo = repo::Repo::new(cli.workdir.as_deref())?;
+        let client = teamcity::Client::new(&config.teamcity, &repo)?;
 
         match command {
             Commands::RunBuild { branch_name } => {
@@ -234,7 +235,7 @@ async fn main() -> Result<()> {
             }
 
             Commands::BranchName { issue_id } => {
-                let yt_client = crate::youtrack::client::Client::new(&config.youtrack)?;
+                let yt_client = crate::youtrack::Client::new(&config.youtrack)?;
 
                 let issue = yt_client.get_issue_by_id(&issue_id).await?;
 
@@ -243,7 +244,7 @@ async fn main() -> Result<()> {
 
             Commands::PullRequests {  } => {
                 let gitlab_client = crate::gitlab::Client::new(&config.gitlab)?;
-                let branch_name = normalize::normalize_branch_name(None, &repo)?;
+                let branch_name = repo.normalize_branch_name(None)?;
 
                 let prs = gitlab_client.get_pull_requests(&branch_name, crate::gitlab::pull_request::State::All).await?;
 
@@ -254,7 +255,7 @@ async fn main() -> Result<()> {
 
             Commands::CreatePullRequest {  } => {
                 let gitlab_client = crate::gitlab::Client::new(&config.gitlab)?;
-                let bn = normalize::get_branch_name_meta(None, &repo)?;
+                let bn = repo.get_branch_name_meta(None)?;
 
                 let remote_branch_name = bn.local_name.parse::<BranchNameWithIssueId>()
                     .map(|b| b.short_name())
@@ -262,46 +263,18 @@ async fn main() -> Result<()> {
 
                 dbg!(&bn);
 
-                let commited = {
-                    let r = repo.lock().unwrap();
-                    let mut revwalk = r.revwalk()?;
-                    revwalk.push_range("origin/master..HEAD")?;
 
-                    revwalk.count() > 0
-                };
-
-                if !commited {
+                if repo.count_ahead_commits()? == 0 {
                     anyhow::bail!("Commit first!");
                 }
 
-                let basename = normalize::get_repo_name(&repo, None)?;
+                let basename = repo.get_name(None)?;
                 let prjs = gitlab_client.find_project_by_name(&basename).await?;
                 let prj = prjs.first().context("No prj found")?;
                 println!("{:?}", prj);
 
-                {
-                    let r = repo.lock().unwrap();
-                    let mut b = r.find_branch(&bn.local_name.clone(), git2::BranchType::Local)?;
-
-
-                    r.reference(
-                        format!("refs/remotes/origin/{remote_branch_name}").as_str(),
-                        bn.oid,
-                        true,
-                        ""
-                    )?;
-                    b.set_upstream(Some(format!("origin/{remote_branch_name}").as_str()))?;
-                    let mut options = normalize::get_push_options();
-
-                    let name = format!("{}:refs/heads/{}", bn.refname, remote_branch_name);
-
-                    dbg!(&name);
-
-                    r.find_remote("origin")?.push(
-                        &[name.as_str()],
-                        Some(&mut options)
-                    )?;
-                };
+                repo.set_upstream(&bn.local_name, &remote_branch_name, bn.oid)?;
+                repo.push(&bn.refname, &remote_branch_name)?;
 
                 let r = gitlab_client.create_pull_request(&prj, &bn).await?;
                 dbg!(&r);
@@ -311,9 +284,9 @@ async fn main() -> Result<()> {
             }
 
             Commands::AddComment { text } => {
-                let yt_client = crate::youtrack::client::Client::new(&config.youtrack)?;
+                let yt_client = crate::youtrack::Client::new(&config.youtrack)?;
 
-                let bn = normalize::get_branch_name_meta(None, &repo)?;
+                let bn = repo.get_branch_name_meta(None)?;
 
                 let issue_id = bn.local_name.parse::<BranchNameWithIssueId>()
                     .map(|b| b.short_name())?;

@@ -1,4 +1,4 @@
-use crate::youtrack::client::Client;
+use crate::youtrack::Client;
 use anyhow::Result;
 use serde::Deserialize;
 use std::borrow::Cow;
@@ -80,5 +80,18 @@ mod tests {
         let result = normalize_str_as_branch_name(&str);
 
         assert_eq!(result, "TEST-Name-of-SOME-task");
+    }
+
+    #[test]
+    fn branch_name_with_issue_id_test() {
+        use super::BranchNameWithIssueId;
+
+        let result = "TEST-123-some-name".parse::<BranchNameWithIssueId>();
+
+        assert!(result.is_ok());
+        let result = result.unwrap();
+        assert_eq!(result.project_id, "TEST");
+        assert_eq!(result.number, 123);
+        assert_eq!(result.slug, Some("some-name".to_owned()));
     }
 }

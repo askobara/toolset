@@ -1,4 +1,4 @@
-use crate::teamcity::client::Client;
+use crate::teamcity::Client;
 use crate::normalize::*;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};

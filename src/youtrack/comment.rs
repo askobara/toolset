@@ -1,4 +1,4 @@
-use crate::youtrack::client::Client;
+use crate::youtrack::Client;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 

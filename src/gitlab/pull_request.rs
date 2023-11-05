@@ -1,4 +1,4 @@
-use crate::normalize::BranchNameMeta;
+use crate::repo::BranchNameMeta;
 
 use super::{Client, project::Project};
 use anyhow::Result;
@@ -50,7 +50,7 @@ impl<'a> Client<'a> {
         );
 
         let body = CreatePullRequestBody {
-            source_branch: bn.upsteam_name.clone().unwrap(),
+            source_branch: bn.upstream_name.clone().unwrap(),
             target_branch: "master".to_owned(),
             title: bn.summary.clone().unwrap(),
             squash_on_merge: true,

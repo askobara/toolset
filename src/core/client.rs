@@ -13,6 +13,7 @@ pub struct Client<'a> {
 impl<'a> Client<'a> {
     pub fn new(config: &'a Config) -> Result<Self> {
         let http_client = reqwest::Client::builder()
+            .connection_verbose(true)
             .default_headers(Self::default_headers())
             .build()?;
 

@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 
 use crate::teamcity::build_locator::{BuildLocator, BuildLocatorBuilder};
-use crate::teamcity::client::Client;
-use crate::normalize::{select_one, normalize_branch_name};
+use crate::teamcity::Client;
+use crate::normalize::select_one;
 use crate::teamcity::BuildQueue;
 use anyhow::{bail, Result};
 use tracing::debug;
@@ -76,7 +76,7 @@ impl<'a> Client<'a> {
         if id.is_some() {
             locator_builder.id(id);
         } else {
-            let branch = normalize_branch_name(branch_name, &self.repo)?;
+            let branch = self.repo.normalize_branch_name(branch_name)?;
 
             locator_builder.build_type(self.build_type);
             locator_builder.branch(Some(branch));
