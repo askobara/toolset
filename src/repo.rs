@@ -14,6 +14,12 @@ pub struct Repo {
     repo: git2::Repository
 }
 
+fn normalize(s: impl Into<String>) -> Option<String> {
+    Path::new(&s.into())
+        .file_stem()
+        .and_then(|s| s.to_str().map(ToOwned::to_owned))
+}
+
 impl Repo  {
     pub fn new(path: Option<&Path>) -> Result<Self> {
         let path = crate::normalize::normalize_path(path)?;
@@ -26,8 +32,7 @@ impl Repo  {
         let remote = self.repo.find_remote(remote_name.unwrap_or("origin"))?;
         let url = remote.url().context("Remote url contains non-utf8 symbols")?;
 
-        crate::normalize::normalize(url)
-            .context("Cannot get repo name")
+        normalize(url).context("Cannot get repo name")
     }
 
     pub fn get_branch_name_meta(&self, branch_name: Option<&str>) -> Result<BranchNameMeta> {
@@ -48,12 +53,12 @@ impl Repo  {
                 let upstream_name: Option<String> = self.repo.branch_upstream_name(refname)
                     .ok()
                     .and_then(|b| b.as_str().map(ToOwned::to_owned))
-                    .and_then(crate::normalize::normalize)
+                    .and_then(normalize)
                 ;
 
                 Ok(BranchNameMeta {
                     refname: refname.to_owned(),
-                    local_name: crate::normalize::normalize(refname).context("Non utf-8")?,
+                    local_name: normalize(refname).context("Non utf-8")?,
                     upstream_name,
                     oid,
                     summary,
@@ -76,8 +81,7 @@ impl Repo  {
                     .unwrap_or(refname.to_owned())
                 ;
 
-                crate::normalize::normalize(&r)
-                    .context("Cannot get branch name")
+                normalize(&r).context("Cannot get branch name")
             }
         }
     }

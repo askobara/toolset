@@ -108,6 +108,12 @@ enum Commands {
     AddComment { text: String },
 
     #[command()]
+    OpenIssue { id: Option<String> },
+
+    #[command()]
+    TimeTracking { id: Option<String> },
+
+    #[command()]
     Init {},
 }
 
@@ -133,11 +139,11 @@ async fn main() -> Result<()> {
         let config = Settings::new()?;
 
         let repo = repo::Repo::new(cli.workdir.as_deref())?;
-        let client = teamcity::Client::new(&config.teamcity, &repo)?;
+        let teamcity = teamcity::Client::new(&config.teamcity, &repo)?;
 
         match command {
             Commands::RunBuild { branch_name } => {
-                let build = client.run_build(None, branch_name.as_deref()).await?;
+                let build = teamcity.run_build(None, branch_name.as_deref()).await?;
 
                 println!("{}", style(&build.web_url).bold().blue());
 
@@ -150,7 +156,7 @@ async fn main() -> Result<()> {
                 env,
                 branch_name,
             } => {
-                let response = client
+                let response = teamcity
                     .run_deploy(build_id.as_deref(), env.as_deref(), branch_name.as_deref())
                     .await?;
 
@@ -177,7 +183,7 @@ async fn main() -> Result<()> {
                     author.replace("current".into());
                 }
 
-                let builds = client
+                let builds = teamcity
                     .get_builds(
                         branch_name.as_deref(),
                         build_type.as_ref(),
@@ -191,11 +197,11 @@ async fn main() -> Result<()> {
 
                 table.set_titles(row![
                     "",
-                    "date",
-                    "build type",
-                    "build id",
-                    "url (branch)",
-                    "triggered by"
+                    "Date",
+                    "Build Type",
+                    "Build Id",
+                    "Url (branch)",
+                    "Triggered By"
                 ]);
                 for build in &builds {
                     table.add_row(row![
@@ -276,7 +282,7 @@ async fn main() -> Result<()> {
                 repo.set_upstream(&bn.local_name, &remote_branch_name, bn.oid)?;
                 repo.push(&bn.refname, &remote_branch_name)?;
 
-                let r = gitlab_client.create_pull_request(&prj, &bn).await?;
+                let r = gitlab_client.create_pull_request(&prj, &bn, &remote_branch_name).await?;
                 dbg!(&r);
 
                 let _ = dump_to_clipboard(&r.web_url.as_str());
@@ -294,6 +300,67 @@ async fn main() -> Result<()> {
                 let response = yt_client.comment_create(&issue_id, &text).await?;
                 dbg!(response);
             }
+
+            Commands::OpenIssue { id } => {
+                // let yt_client = crate::youtrack::Client::new(&config.youtrack)?;
+
+                let bn = repo.get_branch_name_meta(None)?;
+
+                let issue_id = bn.local_name.parse::<BranchNameWithIssueId>()
+                    .map(|b| b.short_name()).ok();
+
+                let issue = id.unwrap_or_else(|| issue_id.expect("No issue id was found"));
+                open_browser(&format!("{}/issue/{}", config.youtrack.client.host, issue))?;
+            }
+
+            Commands::TimeTracking { id } => {
+                let bn = repo.get_branch_name_meta(None)?;
+
+                let issue_id = bn.local_name.parse::<BranchNameWithIssueId>()
+                    .map(|b| b.short_name()).ok();
+
+                let issue = id.unwrap_or_else(|| issue_id.expect("No issue id was found"));
+
+                let timestamp = {
+                    let now = chrono::offset::Local::now();
+
+                    let date = inquire::DateSelect::new("Select a date:")
+                        .with_default(now.date_naive())
+                        .with_min_date(
+                            now.checked_sub_days(chrono::Days::new(7))
+                                .unwrap()
+                                .date_naive(),
+                        )
+                        .with_max_date(now.date_naive())
+                        .with_week_start(chrono::Weekday::Mon)
+                        .prompt()?;
+
+                    let t = chrono::naive::NaiveTime::parse_from_str("00:00:00", "%H:%M:%S")?;
+
+                    format!("{}000", date.and_time(t).format("%s")).parse()?
+                };
+
+                let text = inquire::Text::new("Text:").prompt()?;
+                let duration = inquire::Text::new("Duration:").prompt()?;
+
+                let body = youtrack::time_tracking::TimeTracking {
+                    text,
+                    date: timestamp,
+                    uses_markdown: true,
+                    author: youtrack::time_tracking::Author {
+                        id: "1-6".to_string(),
+                    },
+                    duration: youtrack::time_tracking::Duration {
+                        presentation: duration,
+                    }
+                };
+
+                let yt_client = crate::youtrack::Client::new(&config.youtrack)?;
+                let response = yt_client.create_time_tracking(&issue, &body).await?;
+
+                dbg!(response);
+            }
+
         }
     }
 
@@ -316,6 +383,18 @@ pub fn dump_to_clipboard(value: &str) -> Result<()> {
                 .status()
         )
         .map_err(|e| anyhow::format_err!("Failed to copy value to clipboard: {}", e))?;
+
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+pub fn open_browser(url: &str) -> Result<()> {
+    use std::process::Command;
+
+    Command::new("firefox")
+        .arg(url)
+        .spawn()
+        .map_err(|e| anyhow::format_err!("Failed to open browser: {}", e))?;
 
     Ok(())
 }

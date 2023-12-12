@@ -1,6 +1,7 @@
 pub mod issue;
 pub mod project;
 pub mod comment;
+pub mod time_tracking;
 
 use serde::Deserialize;
 

@@ -12,12 +12,6 @@ pub fn normalize_path(path: Option<&Path>) -> std::io::Result<PathBuf> {
     }
 }
 
-pub fn normalize(s: impl Into<String>) -> Option<String> {
-    Path::new(&s.into())
-        .file_stem()
-        .and_then(|s| s.to_str().map(ToOwned::to_owned))
-}
-
 pub fn normalize_field_names(fields: &[&str]) -> String {
     fields
         .iter()

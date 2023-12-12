@@ -136,9 +136,7 @@ impl<'a> Client<'a> {
             branch_name: &branch,
         };
 
-        let response: BuildQueue = self.http_client.post("/app/rest/buildQueue", &body).await?;
-
-        Ok(response)
+        self.http_client.post("/app/rest/buildQueue", &body).await
     }
 
     pub async fn get_builds(
@@ -197,8 +195,7 @@ impl<'a> Client<'a> {
         );
 
         let url = format!("/app/rest/builds?locator={locator}&fields={fields}");
-        let response: Builds = self.http_client.get(url).await?;
 
-        Ok(response)
+        self.http_client.get(url).await
     }
 }

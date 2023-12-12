@@ -44,13 +44,13 @@ impl<'a> Client<'a> {
         Ok(pull_requests)
     }
 
-    pub async fn create_pull_request(&self, prj: &Project, bn: &BranchNameMeta) -> Result<PullRequest> {
+    pub async fn create_pull_request(&self, prj: &Project, bn: &BranchNameMeta, remote_branch: &str) -> Result<PullRequest> {
         let url = format!(
             "/api/v4/projects/{}/merge_requests", prj.id,
         );
 
         let body = CreatePullRequestBody {
-            source_branch: bn.upstream_name.clone().unwrap(),
+            source_branch: remote_branch.to_owned(),
             target_branch: "master".to_owned(),
             title: bn.summary.clone().unwrap(),
             squash_on_merge: true,
