@@ -2,6 +2,10 @@ pub mod issue;
 pub mod project;
 pub mod comment;
 pub mod time_tracking;
+pub mod user;
+pub mod custom_field;
+pub mod tag;
+pub mod issue_link;
 
 use serde::Deserialize;
 

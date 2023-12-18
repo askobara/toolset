@@ -1,14 +1,57 @@
-use crate::youtrack::Client;
 use anyhow::Result;
-use serde::Deserialize;
-use std::borrow::Cow;
 use recap::Recap;
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use std::borrow::Cow;
+use struct_field_names_as_array::FieldNamesAsArray;
 
-#[derive(Debug, Deserialize)]
+use crate::{youtrack::Client, normalize::normalize_field_names};
+
+use super::{project::Project, user::User, custom_field::IssueCustomField, tag::Tag};
+
+pub trait BaseIssue {
+    fn id(&self) -> Cow<str>;
+    fn id_readable(&self) -> Cow<str>;
+    fn summary(&self) -> Cow<str>;
+}
+
+pub trait YoutrackFields {
+    fn fields() -> String;
+}
+
+#[derive(Deserialize, Serialize, Debug)]
+pub struct IssueCustomFields(Vec<IssueCustomField>);
+
+impl IssueCustomFields {
+    pub fn get(&self, key: &str) -> Option<&IssueCustomField> {
+        for item in self.0.iter() {
+            if item.name == key {
+                return Some(item);
+            }
+        }
+
+        None
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize, FieldNamesAsArray)]
 #[serde(rename_all = "camelCase")]
+#[field_names_as_array(rename_all = "camelCase")]
 pub struct IssueShort {
+    id: String,
     id_readable: String,
     summary: String,
+}
+
+#[derive(Debug, Deserialize, Serialize, FieldNamesAsArray)]
+#[serde(rename_all = "camelCase")]
+#[field_names_as_array(rename_all = "camelCase")]
+pub struct IssueLong {
+    id: String,
+    id_readable: String,
+    summary: String,
+    project: Project,
+    reporter: Option<User>,
+    custom_fields: IssueCustomFields
 }
 
 #[derive(Debug, Deserialize, Recap)]
@@ -30,6 +73,26 @@ impl BranchNameWithIssueId {
     }
 }
 
+impl BaseIssue for IssueShort {
+    fn id(&self) -> Cow<str> {
+        Cow::Borrowed(&self.id)
+    }
+
+    fn id_readable(&self) -> Cow<str> {
+        Cow::Borrowed(&self.id_readable)
+    }
+
+    fn summary(&self) -> Cow<str> {
+        Cow::Borrowed(&self.summary)
+    }
+}
+
+impl YoutrackFields for IssueShort {
+    fn fields() -> String {
+        normalize_field_names(&Self::FIELD_NAMES_AS_ARRAY)
+    }
+}
+
 impl IssueShort {
     pub fn as_local_branch_name(&self) -> Cow<str> {
         let result = normalize_str_as_branch_name(&self.summary);
@@ -42,13 +105,134 @@ impl IssueShort {
     }
 
     pub fn as_remote_branch_name(&self) -> Cow<str> {
+        self.id_readable()
+    }
+
+    pub fn is_backend_sub_issue(&self) -> bool {
+        self.summary().starts_with("[BE]")
+    }
+}
+
+impl BaseIssue for IssueLong {
+    fn id(&self) -> Cow<str> {
+        Cow::Borrowed(&self.id)
+    }
+
+    fn id_readable(&self) -> Cow<str> {
         Cow::Borrowed(&self.id_readable)
+    }
+
+    fn summary(&self) -> Cow<str> {
+        Cow::Borrowed(&self.summary)
+    }
+}
+
+impl YoutrackFields for IssueLong {
+    fn fields() -> String {
+        normalize_field_names(&Self::FIELD_NAMES_AS_ARRAY).replace(
+            "project",
+            &format!("project({})", Project::fields())
+        ).replace(
+            "reporter",
+            &format!("reporter({})", User::fields())
+        ).replace(
+            "customFields",
+            &format!("customFields({})", IssueCustomField::fields())
+        )
     }
 }
 
 impl<'a> Client<'a> {
-    pub async fn get_issue_by_id(&self, id: &str) -> Result<IssueShort> {
-        self.http_client.get(format!("/api/issues/{id}?fields=idReadable,summary"))
+    pub async fn get_issue_by_id<T, S>(&self, id: S) -> Result<T>
+    where
+        T: DeserializeOwned + YoutrackFields,
+        S: Into<String> + std::fmt::Display
+    {
+        let fields = T::fields();
+
+        self.http_client.get(format!("/api/issues/{id}?fields={fields}"))
+            .await
+    }
+
+    pub async fn get_sub_issues<T, S>(&self, id: S) -> Result<Vec<T>>
+    where
+        T: DeserializeOwned + YoutrackFields,
+        S: Into<String> + std::fmt::Display
+    {
+        let fields = T::fields();
+
+        self.http_client.get(format!("/api/issues/{id}/links/90-3s/issues?fields={fields}"))
+            .await
+    }
+
+    pub async fn create_subtask(&self, parent: &IssueLong) -> Result<IssueShort> {
+        dbg!(parent);
+        let tera = tera::Tera::new("templates/**/*").unwrap();
+        let mut context = tera::Context::new();
+        // context.insert("name", "World");
+
+        let body = serde_json::json!({
+            "summary": format!("[BE] {}", parent.summary),
+            "description": tera.render("be_subtask.md", &context).unwrap(),
+            "project": parent.project,
+            "assignee": {
+                "id": "1-6",
+                "$type": "User",
+            },
+            "customFields": [
+                // parent.custom_fields.get("Type")
+                {
+                    "id": "94-60",
+                    "name": "Type",
+                    "$type": "SingleEnumIssueCustomField",
+                    "value": {
+                        "name": "Sub-Task",
+                        "$type": "EnumBundleElement",
+                    }
+                },
+                parent.custom_fields.get("Service"),
+                parent.custom_fields.get("Priority"),
+                parent.custom_fields.get("Team"),
+                parent.custom_fields.get("F.Team"),
+                // parent.custom_fields.get("Stage"),
+            ]
+        });
+
+        dbg!(&body);
+
+        self.http_client.post(format!("/api/issues?fields={fields}", fields = IssueShort::fields()), &body)
+            .await
+    }
+
+    pub async fn link_issues<T, C>(&self, parent: &T, child: &C) -> Result<IssueShort> 
+    where
+        T: BaseIssue,
+        C: BaseIssue
+    {
+        #[derive(Debug, Serialize)]
+        struct Body {
+            id: String
+        }
+
+        let body = Body {
+            id: child.id().to_string(),
+        };
+
+        self.http_client.post(format!("/api/issues/{parent_id}/links/90-3s/issues?fields={fields}", parent_id = parent.id(), fields = IssueShort::fields()), &body)
+            .await
+    }
+
+    pub async fn add_tag_to_issue(&self, issue: &impl BaseIssue, tag: &Tag) -> Result<Tag> {
+        #[derive(Debug, Serialize)]
+        struct Body {
+            id: String
+        }
+
+        let body = Body {
+            id: tag.id.clone(),
+        };
+
+        self.http_client.post(format!("/api/issues/{id}/tags?fields=id,name", id = issue.id()), &body)
             .await
     }
 }

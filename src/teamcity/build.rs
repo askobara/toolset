@@ -100,6 +100,30 @@ pub struct Builds {
     build: Vec<Build>,
 }
 
+impl Builds {
+    pub fn fields() -> String {
+        normalize_field_names(&Builds::FIELD_NAMES_AS_ARRAY).replace(
+            "build",
+            &format!(
+                "build({})",
+                normalize_field_names(&Build::FIELD_NAMES_AS_ARRAY).replace(
+                    "triggered",
+                    &format!(
+                        "triggered({})",
+                        normalize_field_names(&Triggered::FIELD_NAMES_AS_ARRAY).replace(
+                            "user",
+                            &format!(
+                                "user({})",
+                                normalize_field_names(&User::FIELD_NAMES_AS_ARRAY)
+                            )
+                        )
+                    )
+                )
+            ),
+        )
+    }
+}
+
 impl IntoIterator for Builds {
     type Item = Build;
     type IntoIter = std::vec::IntoIter<Self::Item>;
@@ -174,25 +198,7 @@ impl<'a> Client<'a> {
             )
             .build()?;
 
-        let fields = normalize_field_names(&Builds::FIELD_NAMES_AS_ARRAY).replace(
-            "build",
-            &format!(
-                "build({})",
-                normalize_field_names(&Build::FIELD_NAMES_AS_ARRAY).replace(
-                    "triggered",
-                    &format!(
-                        "triggered({})",
-                        normalize_field_names(&Triggered::FIELD_NAMES_AS_ARRAY).replace(
-                            "user",
-                            &format!(
-                                "user({})",
-                                normalize_field_names(&User::FIELD_NAMES_AS_ARRAY)
-                            )
-                        )
-                    )
-                )
-            ),
-        );
+        let fields = Builds::fields();
 
         let url = format!("/app/rest/builds?locator={locator}&fields={fields}");
 

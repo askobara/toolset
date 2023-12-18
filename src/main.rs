@@ -15,6 +15,7 @@ use prettytable::format::{FormatBuilder, LinePosition, LineSeparator, TableForma
 use prettytable::Table;
 use clap_verbosity_flag::Verbosity;
 use tracing_log::AsTrace;
+use youtrack::issue::{BaseIssue, IssueShort};
 use std::io;
 
 mod core;
@@ -114,6 +115,15 @@ enum Commands {
     TimeTracking { id: Option<String> },
 
     #[command()]
+    SubIssues { id: Option<String> },
+
+    #[command()]
+    CreateSubIssue { id: Option<String> },
+
+    #[command()]
+    Patch {},
+
+    #[command()]
     Init {},
 }
 
@@ -196,7 +206,6 @@ async fn main() -> Result<()> {
                 table.set_format(*TABLE_FORMAT);
 
                 table.set_titles(row![
-                    "",
                     "Date",
                     "Build Type",
                     "Build Id",
@@ -204,23 +213,16 @@ async fn main() -> Result<()> {
                     "Triggered By"
                 ]);
                 for build in &builds {
+                    let state = match (build.state(), build.status()) {
+                        ("queued", _) => format!("{}{}", style("祥").bold(), style("queued").yellow()),
+                        ("running", _) => format!("{}{}", style("痢").bold(), style("running").yellow()),
+                        ("finished", Some("SUCCESS")) => format!("{} {}", style("").bold().green(), build.finished_at()),
+                        ("finished", Some("FAILURE")) => format!("{} {}", style("").bold().red(), build.finished_at()),
+                        (_, _) => "?".to_string(),
+                    };
+
                     table.add_row(row![
-                        match build.status().unwrap_or("UNKNOWN") {
-                            "SUCCESS" => format!("{}", style("✓").green().bold()),
-                            "FAILURE" => format!("{}", style("✗").red().bold()),
-                            "UNKNOWN" => format!("{}", style("?").bold()),
-                            _ => "unexpected status".to_string(),
-                        },
-                        format!(
-                            "{} {}",
-                            match build.state() {
-                                "queued" => "祥queued",
-                                "running" => "痢running",
-                                "finished" => "",
-                                _ => "?",
-                            },
-                            build.finished_at()
-                        ),
+                        state,
                         build.build_type_id(),
                         build.id,
                         // style(format!("\x1b]8;;{url}\x1b\\{text}\x1b]8;;\x1b\\", url = build.web_url, text = build.number)),
@@ -243,7 +245,7 @@ async fn main() -> Result<()> {
             Commands::BranchName { issue_id } => {
                 let yt_client = crate::youtrack::Client::new(&config.youtrack)?;
 
-                let issue = yt_client.get_issue_by_id(&issue_id).await?;
+                let issue: IssueShort = yt_client.get_issue_by_id(&issue_id).await?;
 
                 println!("{}", issue.as_local_branch_name());
             }
@@ -254,9 +256,28 @@ async fn main() -> Result<()> {
 
                 let prs = gitlab_client.get_pull_requests(&branch_name, crate::gitlab::pull_request::State::All).await?;
 
+                let mut table = Table::new();
+                table.set_format(*TABLE_FORMAT);
+
+                table.set_titles(row![
+                    "Title",
+                    "Url",
+                    "",
+                    "",
+                    "",
+                ]);
+
                 for pr in &prs {
-                    println!("{}\n- {}", pr.title, pr.web_url);
+                    table.add_row(row![
+                        pr.title,
+                        style(&pr.web_url).blue().underlined(),
+                        pr.has_conflicts,
+                        pr.user_notes_count,
+                        pr.blocking_discussions_resolved,
+                    ]);
                 }
+
+                table.printstd();
             }
 
             Commands::CreatePullRequest {  } => {
@@ -268,7 +289,6 @@ async fn main() -> Result<()> {
                     .unwrap_or(bn.local_name.clone());
 
                 dbg!(&bn);
-
 
                 if repo.count_ahead_commits()? == 0 {
                     anyhow::bail!("Commit first!");
@@ -302,8 +322,6 @@ async fn main() -> Result<()> {
             }
 
             Commands::OpenIssue { id } => {
-                // let yt_client = crate::youtrack::Client::new(&config.youtrack)?;
-
                 let bn = repo.get_branch_name_meta(None)?;
 
                 let issue_id = bn.local_name.parse::<BranchNameWithIssueId>()
@@ -348,7 +366,7 @@ async fn main() -> Result<()> {
                     date: timestamp,
                     uses_markdown: true,
                     author: youtrack::time_tracking::Author {
-                        id: "1-6".to_string(),
+                        id: "me".to_string(),
                     },
                     duration: youtrack::time_tracking::Duration {
                         presentation: duration,
@@ -361,6 +379,75 @@ async fn main() -> Result<()> {
                 dbg!(response);
             }
 
+            Commands::SubIssues { id } => {
+                let yt_client = crate::youtrack::Client::new(&config.youtrack)?;
+                let bn = repo.get_branch_name_meta(None)?;
+
+                let issue_id = bn.local_name.parse::<BranchNameWithIssueId>()
+                    .map(|b| b.short_name()).ok();
+
+                let issue = id.unwrap_or_else(|| issue_id.expect("No issue id was found"));
+
+                let response: Vec<IssueShort> = yt_client.get_sub_issues(&issue).await?;
+
+                let mut table = Table::new();
+                table.set_format(*TABLE_FORMAT);
+
+                table.set_titles(row![
+                    "Id",
+                    "Title",
+                ]);
+
+                for issue in &response {
+                    table.add_row(row![
+                        issue.id_readable(),
+                        issue.summary(),
+                    ]);
+                }
+
+                table.printstd();
+            }
+
+            Commands::CreateSubIssue { id } => {
+                let yt_client = crate::youtrack::Client::new(&config.youtrack)?;
+                let bn = repo.get_branch_name_meta(None)?;
+
+                let issue_id = bn.local_name.parse::<BranchNameWithIssueId>()
+                    .map(|b| b.short_name()).ok();
+
+                let issue = id.unwrap_or_else(|| issue_id.expect("No issue id was found"));
+
+                let response: Vec<IssueShort> = yt_client.get_sub_issues(&issue).await?;
+                let c = response.iter().filter(|i| i.is_backend_sub_issue()).count();
+
+                // let r = yt_client.search_issue_link("targetToSource: {subtask of}").await?;
+                // dbg!(r);
+                //
+                // return Ok(());
+                if c > 0 {
+                    anyhow::bail!("Already has a [BE] task!");
+                }
+
+                let current: youtrack::issue::IssueLong = yt_client.get_issue_by_id(&issue).await?;
+
+                let new_issue = yt_client.create_subtask(&current).await?;
+                dbg!(&new_issue);
+                let response = yt_client.link_issues(&current, &new_issue).await?;
+                dbg!(response);
+
+                let tags = yt_client.search_tags("[BE] Need approve").await?;
+                if let Some(tag) = tags.first() {
+                    let response = yt_client.add_tag_to_issue(&new_issue, &tag).await?;
+                    dbg!(response);
+                }
+            }
+
+            Commands::Patch {  } => {
+                todo!()
+                // validate git stage
+                // git commit -m --amend
+                // git push --force-with-lease
+            }
         }
     }
 

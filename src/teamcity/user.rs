@@ -40,16 +40,21 @@ pub struct Users {
     pub(crate) user: Vec<User>,
 }
 
-impl<'a> Client<'a> {
-    pub async fn user_list(&self) -> Result<Users> {
-        let fields = normalize_field_names(&Users::FIELD_NAMES_AS_ARRAY).replace(
+impl Users {
+    pub fn fields() -> String {
+        normalize_field_names(&Users::FIELD_NAMES_AS_ARRAY).replace(
             "user",
             &format!(
                 "user({})",
                 normalize_field_names(&User::FIELD_NAMES_AS_ARRAY)
             ),
-        );
+        )
+    }
+}
 
+impl<'a> Client<'a> {
+    pub async fn user_list(&self) -> Result<Users> {
+        let fields = Users::fields();
         let url = format!("/app/rest/users?fields={fields}");
         let response: Users = self.http_client.get(url).await?;
 
