@@ -172,16 +172,17 @@ impl<'a> Client<'a> {
         tiny.add_template("be_subtask.md", include_str!("templates/be_subtask.md"))?;
 
         #[derive(Serialize)]
-        struct TinyContext {
-        }
+        struct TinyContext {}
         let context = TinyContext {};
+
+        let me = self.me().await?;
 
         let body = serde_json::json!({
             "summary": format!("[BE] {}", parent.summary),
             "description": tiny.render("be_subtask.md", &context).unwrap(),
             "project": parent.project,
             "assignee": {
-                "id": "1-6",
+                "id": me.id(),
                 "$type": "User",
             },
             "customFields": [

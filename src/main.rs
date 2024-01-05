@@ -353,14 +353,14 @@ async fn main() -> Result<()> {
 
                 let text = inquire::Text::new("Text:").prompt()?;
                 let duration = inquire::Text::new("Duration:").prompt()?;
-                // let u = yt_client.me().await?;
+                let me = youtrack::Client::new(&config.youtrack)?.me().await?;
 
                 let body = youtrack::time_tracking::TimeTracking {
                     text,
                     date: timestamp,
                     uses_markdown: true,
                     author: youtrack::time_tracking::Author {
-                        id: "1-6".to_string(),
+                        id: me.id().to_string(),
                     },
                     duration: youtrack::time_tracking::Duration {
                         presentation: duration,

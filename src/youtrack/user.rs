@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use struct_field_names_as_array::FieldNamesAsArray;
@@ -11,6 +13,10 @@ pub struct User {
 }
 
 impl User {
+    pub fn id(&self) -> Cow<str> {
+        Cow::Borrowed(&self.id)
+    }
+
     pub fn fields() -> String {
         crate::normalize::normalize_field_names(&Self::FIELD_NAMES_AS_ARRAY)
     }
