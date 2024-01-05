@@ -1,6 +1,4 @@
 #[macro_use]
-extern crate lazy_static;
-#[macro_use]
 extern crate prettytable;
 #[macro_use]
 extern crate derive_builder;
@@ -10,13 +8,11 @@ extern crate skim;
 use anyhow::{Context, Result};
 use clap::{Command, CommandFactory, Parser, Subcommand};
 use clap_complete::{generate, Generator, Shell};
-use console::style;
-use prettytable::format::{FormatBuilder, LinePosition, LineSeparator, TableFormat};
-use prettytable::Table;
 use clap_verbosity_flag::Verbosity;
+use console::style;
+use std::io;
 use tracing_log::AsTrace;
 use youtrack::issue::{BaseIssue, IssueShort};
-use std::io;
 
 mod core;
 mod repo;
@@ -25,21 +21,11 @@ mod normalize;
 mod settings;
 mod teamcity;
 mod youtrack;
+mod table;
 
 use crate::settings::*;
 use crate::teamcity::ArgBuildType;
 use crate::youtrack::issue::BranchNameWithIssueId;
-
-lazy_static! {
-    static ref TABLE_FORMAT: TableFormat = FormatBuilder::new()
-        .column_separator(' ')
-        .separator(LinePosition::Top, LineSeparator::new('─', ' ', ' ', ' '))
-        .separator(LinePosition::Title, LineSeparator::new('─', ' ', ' ', ' '))
-        .separator(LinePosition::Intern, LineSeparator::new('┈', ' ', ' ', ' '))
-        .separator(LinePosition::Bottom, LineSeparator::new('─', ' ', ' ', ' '))
-        .padding(1, 1)
-        .build();
-}
 
 #[derive(Debug, Parser)]
 #[command(name = "teamcity", author, version, about, long_about = None)] // Read from `Cargo.toml`
@@ -205,16 +191,14 @@ async fn main() -> Result<()> {
                     )
                     .await?;
 
-                let mut table = Table::new();
-                table.set_format(*TABLE_FORMAT);
-
-                table.set_titles(row![
+                let mut table = table::Table::new(row![
                     "Date",
                     "Build Type",
                     "Build Id",
                     "Url (branch)",
                     "Triggered By"
                 ]);
+
                 for build in &builds {
                     let state = match (build.state(), build.status()) {
                         ("queued", _) => format!("{}{}", style("祥").bold(), style("queued").yellow()),
@@ -268,10 +252,7 @@ async fn main() -> Result<()> {
 
                 let prs = gitlab_client.get_pull_requests(&branch_name, crate::gitlab::pull_request::State::All).await?;
 
-                let mut table = Table::new();
-                table.set_format(*TABLE_FORMAT);
-
-                table.set_titles(row![
+                let mut table = table::Table::new(row![
                     "Title",
                     "Url",
                     "",
@@ -403,10 +384,7 @@ async fn main() -> Result<()> {
 
                 let response: Vec<IssueShort> = yt_client.get_sub_issues(&issue).await?;
 
-                let mut table = Table::new();
-                table.set_format(*TABLE_FORMAT);
-
-                table.set_titles(row![
+                let mut table = table::Table::new(row![
                     "Id",
                     "Title",
                 ]);

@@ -1,5 +1,6 @@
-use std::{path::Path, io::{Write, self}};
+use std::path::Path;
 use anyhow::{Context, Result};
+use tracing::debug;
 
 #[derive(Debug)]
 pub struct BranchNameMeta {
@@ -124,11 +125,12 @@ impl Repo  {
         Ok(())
     }
 
-    fn get_push_options() -> git2::PushOptions<'static> {
+    fn get_git_remote_callbacks() -> git2::RemoteCallbacks<'static> {
         let mut callbacks = git2::RemoteCallbacks::new();
+
         callbacks.credentials(|_url, username_from_url, _allowed_types| {
             git2::Cred::ssh_key(
-                username_from_url.unwrap(),
+                username_from_url.unwrap_or_default(),
                 None,
                 Path::new(
                     &format!("{}/.ssh/id_rsa", std::env::var("HOME").unwrap())
@@ -136,6 +138,12 @@ impl Repo  {
                 None,
             )
         });
+
+        callbacks
+    }
+
+    fn get_push_options() -> git2::PushOptions<'static> {
+        let mut callbacks = Self::get_git_remote_callbacks();
 
         callbacks.push_update_reference(|ref_name, status| {
             dbg!(ref_name, status);
@@ -149,52 +157,46 @@ impl Repo  {
     }
 
     pub fn status(&self) {
+        todo!();
         // dbg!(self.repo.statuses(None));
     }
 
     pub fn create_and_switch(&self, branch_name: &str) -> Result<()> {
-        // git fetch
-        // git switch -c "$branch_name" origin/master
+        if self.repo.find_branch(branch_name, git2::BranchType::Local).is_ok() {
+            anyhow::bail!("Branch already exists");
+        }
+
         let refs = self.repo.find_reference("refs/remotes/origin/master")?;
-        // let head = self.repo.head()?;
         let commit = refs.peel_to_commit()?;
         let branch = self.repo.branch(branch_name, &commit, false)?;
-        self.repo.set_head(&format!("refs/heads/{}", branch_name))?;
-        self.repo.checkout_head(
-            Some(
-                git2::build::CheckoutBuilder::default()
-                    // For some reason the force is required to make the working directory actually get updated
-                    // I suspect we should be adding some logic to handle dirty working directory states
-                    // but this is just an example so maybe not.
-                    .force(),
-            )
-        )?;
+        if let Some(ref_name) = branch.into_reference().name() {
+            self.repo.set_head(ref_name)?;
+            self.repo.checkout_head(
+                Some(
+                    git2::build::CheckoutBuilder::default()
+                        // For some reason the force is required to make the working directory actually get updated
+                        // I suspect we should be adding some logic to handle dirty working directory states
+                        // but this is just an example so maybe not.
+                        .force(),
+                )
+            )?;
+        } else {
+            anyhow::bail!("Cannot switch to branch due invalid name");
+        }
 
         Ok(())
     }
 
     pub fn fetch(&self, remote: Option<&str>) -> Result<()> {
         let remote = remote.unwrap_or("origin");
-
-        let mut cb = git2::RemoteCallbacks::new();
-        cb.credentials(|_url, username_from_url, _allowed_types| {
-            git2::Cred::ssh_key(
-                username_from_url.unwrap(),
-                None,
-                Path::new(
-                    &format!("{}/.ssh/id_rsa", std::env::var("HOME").unwrap())
-                ),
-                None,
-            )
-        });
-
         let mut remote = self.repo
             .find_remote(remote)
             .or_else(|_| self.repo.remote_anonymous(remote))?;
 
+        let mut cb = Self::get_git_remote_callbacks();
+
         cb.sideband_progress(|data| {
-            print!("remote: {}", std::str::from_utf8(data).unwrap());
-            io::stdout().flush().unwrap();
+            debug!("remote: {}", std::str::from_utf8(data).unwrap());
             true
         });
 
@@ -203,9 +205,9 @@ impl Repo  {
         // update.
         cb.update_tips(|refname, a, b| {
             if a.is_zero() {
-                println!("[new]     {:20} {}", b, refname);
+                debug!("[new]     {:20} {}", b, refname);
             } else {
-                println!("[updated] {:10}..{:10} {}", a, b, refname);
+                debug!("[updated] {:10}..{:10} {}", a, b, refname);
             }
             true
         });
@@ -213,16 +215,14 @@ impl Repo  {
         // Download the packfile and index it. This function updates the amount of
         // received data and the indexer stats which lets you inform the user about
         // progress.
-        let mut fo = git2::FetchOptions::new();
-        fo.remote_callbacks(cb);
-        remote.download(&[] as &[&str], Some(&mut fo))?;
+        remote.download(&[] as &[&str], Some(git2::FetchOptions::new().remote_callbacks(cb)))?;
 
         {
             // If there are local objects (we got a thin pack), then tell the user
             // how many objects we saved from having to cross the network.
             let stats = remote.stats();
             if stats.local_objects() > 0 {
-                println!(
+                debug!(
                     "\rReceived {}/{} objects in {} bytes (used {} local objects)",
                     stats.indexed_objects(),
                     stats.total_objects(),
@@ -230,7 +230,7 @@ impl Repo  {
                     stats.local_objects()
                 );
             } else {
-                println!(
+                debug!(
                     "\rReceived {}/{} objects in {} bytes",
                     stats.indexed_objects(),
                     stats.total_objects(),
