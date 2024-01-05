@@ -100,6 +100,9 @@ enum Commands {
     BranchName { issue_id: String },
 
     #[command()]
+    CreateBranch { issue_id: String },
+
+    #[command()]
     PullRequests {},
 
     #[command()]
@@ -250,6 +253,15 @@ async fn main() -> Result<()> {
                 println!("{}", issue.as_local_branch_name());
             }
 
+            Commands::CreateBranch { issue_id } => {
+                let yt_client = crate::youtrack::Client::new(&config.youtrack)?;
+
+                let issue: IssueShort = yt_client.get_issue_by_id(&issue_id).await?;
+
+                repo.fetch(None)?;
+                repo.create_and_switch(&issue.as_local_branch_name())?;
+            }
+
             Commands::PullRequests {  } => {
                 let gitlab_client = crate::gitlab::Client::new(&config.gitlab)?;
                 let branch_name = repo.normalize_branch_name(None)?;
@@ -360,13 +372,14 @@ async fn main() -> Result<()> {
 
                 let text = inquire::Text::new("Text:").prompt()?;
                 let duration = inquire::Text::new("Duration:").prompt()?;
+                // let u = yt_client.me().await?;
 
                 let body = youtrack::time_tracking::TimeTracking {
                     text,
                     date: timestamp,
                     uses_markdown: true,
                     author: youtrack::time_tracking::Author {
-                        id: "me".to_string(),
+                        id: "1-6".to_string(),
                     },
                     duration: youtrack::time_tracking::Duration {
                         presentation: duration,

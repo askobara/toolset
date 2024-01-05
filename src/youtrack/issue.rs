@@ -3,6 +3,7 @@ use recap::Recap;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::borrow::Cow;
 use struct_field_names_as_array::FieldNamesAsArray;
+use tinytemplate::TinyTemplate;
 
 use crate::{youtrack::Client, normalize::normalize_field_names};
 
@@ -167,13 +168,17 @@ impl<'a> Client<'a> {
 
     pub async fn create_subtask(&self, parent: &IssueLong) -> Result<IssueShort> {
         dbg!(parent);
-        let tera = tera::Tera::new("templates/**/*").unwrap();
-        let mut context = tera::Context::new();
-        // context.insert("name", "World");
+        let mut tiny = TinyTemplate::new();
+        tiny.add_template("be_subtask.md", include_str!("templates/be_subtask.md"))?;
+
+        #[derive(Serialize)]
+        struct TinyContext {
+        }
+        let context = TinyContext {};
 
         let body = serde_json::json!({
             "summary": format!("[BE] {}", parent.summary),
-            "description": tera.render("be_subtask.md", &context).unwrap(),
+            "description": tiny.render("be_subtask.md", &context).unwrap(),
             "project": parent.project,
             "assignee": {
                 "id": "1-6",
