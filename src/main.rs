@@ -434,13 +434,13 @@ async fn main() -> Result<()> {
             }
 
             Commands::Patch {  } => {
-                todo!()
+                let statuses = repo.status();
                 // validate git stage
                 // git commit -m --amend
                 // git push --force-with-lease
             }
         }
-    }
+    };
 
     Ok(())
 }
@@ -464,6 +464,10 @@ pub fn dump_to_clipboard(value: &str) -> Result<()> {
 
     Ok(())
 }
+#[cfg(target_os = "macos")]
+pub fn dump_to_clipboard(value: &str) -> Result<()> {
+    todo!();
+}
 
 #[cfg(target_os = "linux")]
 pub fn open_browser(url: &str) -> Result<()> {
@@ -475,4 +479,9 @@ pub fn open_browser(url: &str) -> Result<()> {
         .map_err(|e| anyhow::format_err!("Failed to open browser: {}", e))?;
 
     Ok(())
+}
+
+#[cfg(target_os = "macos")]
+pub fn open_browser(url: &str) -> Result<()> {
+    todo!();
 }

@@ -37,8 +37,12 @@ impl Repo  {
     }
 
     pub fn get_branch_name_meta(&self, branch_name: Option<&str>) -> Result<BranchNameMeta> {
-        match branch_name {
-            Some(_) => todo!(),
+        let reference = match branch_name {
+            Some(branch_name) => {
+                let branch = self.repo.find_branch(branch_name, git2::BranchType::Local)?;
+
+                branch.into_reference()
+            },
             None => {
                 let head = self.repo.head()?;
 
@@ -46,26 +50,26 @@ impl Repo  {
                     anyhow::bail!("HEAD is not a branch");
                 }
 
-                let oid = head.target().context("HEAD is symbolic one")?;
-                let summary = self.repo.find_commit(oid).ok().and_then(|c| c.summary().map(ToOwned::to_owned));
-
-                let refname = head.name().context("unable to get a branch name due to non-utf8 symbols")?;
-
-                let upstream_name: Option<String> = self.repo.branch_upstream_name(refname)
-                    .ok()
-                    .and_then(|b| b.as_str().map(ToOwned::to_owned))
-                    .and_then(normalize)
-                ;
-
-                Ok(BranchNameMeta {
-                    refname: refname.to_owned(),
-                    local_name: normalize(refname).context("Non utf-8")?,
-                    upstream_name,
-                    oid,
-                    summary,
-                })
+                head
             }
-        }
+        };
+
+        let commit = reference.peel_to_commit()?;
+        let refname = reference.name().context("unable to get a branch name due to non-utf8 symbols")?;
+
+        let upstream_name: Option<String> = self.repo.branch_upstream_name(refname)
+            .ok()
+            .and_then(|b| b.as_str().map(ToOwned::to_owned))
+            .and_then(normalize)
+        ;
+
+        Ok(BranchNameMeta {
+            refname: refname.to_owned(),
+            local_name: normalize(refname).context("Non utf-8")?,
+            upstream_name,
+            oid: commit.id(),
+            summary: commit.summary().map(ToOwned::to_owned),
+        })
     }
 
     pub fn normalize_branch_name(&self, branch_name: Option<&str>) -> Result<String> {
@@ -249,5 +253,74 @@ impl Repo  {
         remote.update_tips(None, true, git2::AutotagOption::Unspecified, None)?;
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use git2::{Repository, RepositoryInitOptions};
+    use tempfile::TempDir;
+
+    use super::Repo;
+
+    // https://github.com/rust-lang/git2-rs/blob/master/src/test.rs
+    fn repo_init() -> (TempDir, Repository) {
+        let td = TempDir::new().unwrap();
+        let mut opts = RepositoryInitOptions::new();
+        opts.initial_head("main");
+        let repo = Repository::init_opts(td.path(), &opts).unwrap();
+        {
+            let mut config = repo.config().unwrap();
+            config.set_str("user.name", "name").unwrap();
+            config.set_str("user.email", "email").unwrap();
+            let mut index = repo.index().unwrap();
+            let id = index.write_tree().unwrap();
+
+            let tree = repo.find_tree(id).unwrap();
+            let sig = repo.signature().unwrap();
+            repo.commit(Some("HEAD"), &sig, &sig, "initial\n\nbody", &tree, &[])
+                .unwrap();
+        }
+        (td, repo)
+    }
+
+    #[test]
+    fn new_repo() {
+        let (path, _) = repo_init();
+        let repo = Repo::new(Some(path.path()));
+
+        assert!(repo.is_ok());
+    }
+
+    #[test]
+    fn get_name_test() {
+        let (path, repo) = repo_init();
+        repo.remote("origin", "git@github.com:username/project.git").unwrap();
+        drop(repo);
+
+        let repo = Repo::new(Some(path.path())).unwrap();
+        assert_eq!(repo.get_name(None).unwrap(), "project");
+        assert_eq!(repo.get_name(Some("origin")).unwrap(), "project");
+        assert!(repo.get_name(Some("upstream")).is_err());
+    }
+
+    #[test]
+    fn get_branch_name_meta_test() {
+        let (path, _) = repo_init();
+        let repo = Repo::new(Some(path.path())).unwrap();
+
+        let bn = repo.get_branch_name_meta(None).unwrap();
+        assert_eq!(bn.local_name, "main");
+        assert_eq!(bn.refname, "refs/heads/main");
+        assert_eq!(bn.summary, Some("initial".to_string()));
+
+        let bn2 = repo.get_branch_name_meta(Some("main")).unwrap();
+        assert_eq!(bn2.local_name, "main");
+        assert_eq!(bn2.refname, "refs/heads/main");
+        assert_eq!(bn2.summary, Some("initial".to_string()));
+
+        assert_eq!(bn.oid, bn2.oid);
+
+        assert!(repo.get_branch_name_meta(Some("non-existed")).is_err());
     }
 }
